@@ -4,8 +4,8 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:v100:4
-#SBATCH --mem=95000M   
-#SBATCH --time=02:00:00
+#SBATCH --mem=100G   
+#SBATCH --time=01:00:00
 #SBATCH --account=def-gdumas85
 #SBATCH --output=/home/memole/projects/def-gdumas85/memole/MPPO-ATTENTIOAN/logs/MAPPO-attention-meltingpot-seed-1_%N-%j.out
 #SBATCH --error=/home/memole/projects/def-gdumas85/memole/MPPO-ATTENTIOAN/logs/MAPPO-attention-meltingpot-seed-1_%N-%j.err
@@ -110,6 +110,16 @@ cd $DIR/onpolicy/scripts/train
 
 #test meltingpot environment 
 #CUDA_VISIBLE_DEVICES=0,1 /home/memole/MAPPO/bin/python3 -m meltingpot.examples.pettingzoo.sb3_train
-CUDA_VISIBLE_DEVICES=0,1 python train_meltingpot.py --use_valuenorm --use_popart True --env_name "Meltingpot" --algorithm_name "mappo" --experiment_name "check" \
-    --substrate_name "territory__rooms" --num_agents 9 --seed 1 --n_rollout_threads 16 \
-    --use_wandb --user_name "zsheikhb" --wandb_name "zsheikhb" --share_policy False --use_centralized_V False --use_attention True 
+#CUDA_VISIBLE_DEVICES=0,1 python train_meltingpot.py --use_valuenorm --use_popart True --env_name "Meltingpot" --algorithm_name "mappo" --experiment_name "check" \
+#    --substrate_name "territory__rooms" --num_agents 9 --seed 1 --n_rollout_threads 8 --num_env_steps 2000 --n_training_threads 1 --num_mini_batch 1 \
+#    --use_wandb --user_name "zsheikhb" --wandb_name "zsheikhb" --share_policy False --use_centralized_V False --use_attention True --downsample True
+
+#CUDA_VISIBLE_DEVICES=0,1 python train_meltingpot.py --use_valuenorm --use_popart True --env_name "Meltingpot" --algorithm_name "mappo" --experiment_name "check" \
+#   --substrate_name "clean_up" --num_agents 7 --seed 1 --n_rollout_threads 5 --use_wandb --user_name "zsheikhb" --wandb_name "zsheikhb" \
+#   --share_policy False --use_centralized_V False --use_attention True --use_obs_instead_of_state True
+
+CUDA_VISIBLE_DEVICES=0 python train_meltingpot.py --use_valuenorm --use_popart True --env_name "Meltingpot" \
+    --algorithm_name "mappo" --experiment_name "check" \
+    --substrate_name "territory__rooms" --num_agents 9 --seed 1 --n_rollout_threads 5 \
+    --use_wandb --user_name "zsheikhb" --wandb_name "zsheikhb" --share_policy False --use_centralized_V False --use_attention True \
+    --num_env_steps 10 --log_interval 1 --episode_length 2
