@@ -97,9 +97,11 @@ class MeltingpotRunner(Runner):
                         train_infos[agent_id].update({'individual_rewards': np.mean(idv_rews)})
 
                         train_infos[agent_id].update({"average_episode_rewards": np.mean(self.buffer[agent_id].rewards) * self.episode_length})
-                        print("average episode rewards is {}".format(train_infos["average_episode_rewards"]))
-                self.log_train(train_infos, total_num_steps)
+                        print("average episode rewards for agent {} is {}".format(agent_id, train_infos[agent_id]["average_episode_rewards"]))
 
+                        #print("average episode rewards is {}".format(train_infos["average_episode_rewards"]))
+                self.log_train(train_infos, total_num_steps)
+                print(f"finish log training")
             # eval
             if episode % self.eval_interval == 0 and self.use_eval:
                 self.eval(total_num_steps)

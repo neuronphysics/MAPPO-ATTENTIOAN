@@ -392,7 +392,7 @@ class SubprocVecEnv(ShareVecEnv):
             raise RuntimeError("No results were successfully processed from the worker environments.")
         else:
            obs, rews, dones, infos = zip(*results)
-           print(f"well, we are inside SubprocVecEnv class reward {rews} obs :{obs}")
+           print(f"well, we are inside SubprocVecEnv class reward {rews} obs :{obs[0]['player_0']['WORLD.RGB'].shape}")
         return np.stack(obs), np.stack(rews), np.stack(dones), infos
 
     def reset(self):

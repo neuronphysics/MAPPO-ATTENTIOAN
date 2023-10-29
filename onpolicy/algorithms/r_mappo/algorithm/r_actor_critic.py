@@ -55,7 +55,7 @@ class R_Actor(nn.Module):
            self.base = Encoder(input_channel, input_height, input_width, self.hidden_size, device, max_filters=256, num_layers=3, kernel_size= kernel, stride_size=stride, padding_size=padding)
            if self._attention_module == "RIM": 
                 print("We are using RIM...")
-                self.rnn =  RIM(device, self.hidden_size, self.hidden_size, 6, 4, rnn_cell = 'GRU', n_layers = 1, bidirectional = False, batch_first = False)
+                self.rnn =  RIM(device, self.hidden_size, self.hidden_size, 6, 4, rnn_cell = 'GRU', n_layers = 2, bidirectional = False, batch_first = False)
            elif self._attention_module == "SCOFF":
                 print("We are using SCOFF...")
                 self.rnn =  SCOFF(device, self.hidden_size, self.hidden_size, 4, 3, num_templates = 2, rnn_cell = 'GRU', n_layers = 1, bidirectional = False, batch_first = False, version= self._use_version_scoff)
