@@ -37,7 +37,7 @@ class MeltingpotRunner(Runner):
         super(MeltingpotRunner, self).__init__(config)
        
     def run(self):
-        self.warmup()   
+        obs = self.warmup()   
 
         start = time.time()
         episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
@@ -51,17 +51,15 @@ class MeltingpotRunner(Runner):
                 # Sample actions
                 values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env = self.collect(step)
 
-                print(f"meltingpot runner separate ......")
-
                 # Obser reward and next obs
-                print(f"Before envs.step in MeltingpotRunner with action size {actions.shape}")
-                obs, rewards, dones, infos = self.envs.step(actions)
-                print(f"After envs.step in MeltingpotRunner reward {rewards} dones {dones} observation size {obs[0]['player_0']['RGB'].shape} share obs size {obs[0]['player_0']['WORLD.RGB'].shape}")
+                next_obs, rewards, dones, infos = self.envs.step(actions)
+                print(f"After envs.step {step} in MeltingpotRunner (separate) for action size {actions.shape}, the reward {rewards} dones {dones}")
 
-                data = obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic 
+                data = next_obs, obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic 
 
                 # insert data into buffer
                 self.insert(data)
+                obs = next_obs
 
             # compute return and update network
             self.compute()
@@ -90,7 +88,7 @@ class MeltingpotRunner(Runner):
                 if self.env_name == "Meltingpot":
                     for agent_id in range(self.num_agents):
                         idv_rews = []
-                        print(f"Details of 'SubprocVecEnv' object {self.envs.__dict__}")
+                        #print(f"Details of 'SubprocVecEnv' object {self.envs.__dict__}")
                         print(f"rewards after run {rewards} here")
                         for index in list(self.envs.observation_space.keys()):
                             idv_rews.append(rewards[0][index])
@@ -110,6 +108,7 @@ class MeltingpotRunner(Runner):
         # reset env
         #if --n_rollout_threads 6 && --substrate_name "territory__rooms"
         obs = self.envs.reset()
+        
         # replay buffer
         share_obs = []
         agent_obs = []
@@ -135,7 +134,7 @@ class MeltingpotRunner(Runner):
             #size of buffer share_obs (6, 168, 168, 3)--- obs (6, 11, 11, 3)
             self.buffer[agent_id].share_obs[0] = share_obs[:,agent_id,:,:,:].transpose(0, 2, 1, 3).copy()
             self.buffer[agent_id].obs[0]       = agent_obs[:,agent_id,:,:,:].copy()
-        
+        return obs
 
     @torch.no_grad()
     def collect(self, step):
@@ -172,8 +171,11 @@ class MeltingpotRunner(Runner):
             elif self.envs.action_space[player].__class__.__name__ == 'Discrete':
                 print(f"meltingpot_runner action type {self.envs.action_space[player].__class__.__name__}")
                 print(f"size of action in meltingpot runner {np.eye(self.envs.action_space[player].n)[action].shape}")
-                #action_env = np.squeeze(np.eye(self.envs.action_space[player].n)[action], 1)
-                action_env = np.squeeze(np.eye(self.envs.action_space[player].n)[action], 0)
+                
+                var = np.eye(self.envs.action_space[player].n)[action]
+                
+                action_env = np.squeeze(var, axis=next((axis for axis, size in enumerate(var.shape) if size == 1), None))
+
             else:
                 raise NotImplementedError
 
@@ -194,28 +196,74 @@ class MeltingpotRunner(Runner):
                 one_hot_action_env.append(temp_action_env[i])
             actions_env.append(one_hot_action_env)
         
-        values = np.array(values).squeeze(-1).transpose(1, 0, 2)
-        actions = np.array(actions).squeeze(-1).transpose(1, 0, 2)
-        action_log_probs = np.array(action_log_probs).transpose(1, 0, 2)
-        rnn_states = np.array(rnn_states).transpose(1, 0, 2, 3)
-        rnn_states_critic = np.array(rnn_states_critic).transpose(1, 0, 2, 3)
-        print(f"size of values {values.shape}")
-        
-        print(f"size of actions {actions.shape}")
-        
-        print(f"rnn states {rnn_states.shape}")
-        
-        print(f"rnn_states_critic {rnn_states_critic.shape}")
+        #print("BEFORE SQUEEZING \n values are \n", np.array(values).shape, "\n actions are \n", np.array(actions).shape, "\n action log probs are \n ", np.array(action_log_probs).shape, " \n rnn states are \n", np.array(rnn_states).shape, "\n rnn states critic are \n", np.array(rnn_states_critic).shape, "\n actions env are \n", len(actions_env))
+        values = np.array(values) if isinstance(values, list) else values
+        actions = np.array(actions) if isinstance(actions, list) else actions
+        action_log_probs = np.array(action_log_probs) if isinstance(action_log_probs, list) else action_log_probs
+        rnn_states = np.array(rnn_states) if isinstance(rnn_states, list) else rnn_states
+        rnn_states_critic = np.array(rnn_states_critic) if isinstance(rnn_states_critic, list) else rnn_states_critic
+
+        values = values.squeeze(-1).transpose(1, 0, 2)
+        if actions.ndim==3:
+            actions = actions.transpose(2, 0, 1)
+        else:
+            actions = actions.squeeze(-1).transpose(1, 0, 2)
+        if action_log_probs.ndim==2:
+           action_log_probs = action_log_probs[:, np.newaxis, :]
+        action_log_probs = action_log_probs.transpose(1, 0, 2)
+        if rnn_states.ndim==3:
+            rnn_states =rnn_states[:, np.newaxis, :, :]
+        rnn_states = rnn_states.transpose(1, 0, 2, 3)
+        #print(f"size of rnn state critic {rnn_states_critic.shape}")
+        if rnn_states_critic.ndim==3:
+            rnn_states_critic = rnn_states_critic[:, np.newaxis, :, :]
+        rnn_states_critic = rnn_states_critic.transpose(1, 0, 2, 3)
+        #print("AFTER SQUEEZING\n values are \n", values.shape, "\n actions are \n", actions.shape, "\n action log probs are \n ", action_log_probs.shape, " \n rnn states are \n", rnn_states.shape, "\n rnn states critic are \n", rnn_states_critic.shape, "\n length of actions env \n", len(actions_env))
+        #print(f"size of values {values.shape} size of actions {actions.shape} size of action log probs {action_log_probs.shape} size of rnn states {rnn_states.shape} size of rnn states critic {rnn_states_critic.shape}")
         #values (1, num_agent, n_rollout)
         #ctions (1, num_agent, n_rollout)
         #rnn states (1, num_agent, n_rollout, hidden_size)
         #rnn_states_critic (1, num_agent, n_rollout, hidden_size)
         
         return values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env
+    
+    def process_obs(self, obs):
+        # Initialize lists to store processed observations
+        share_obs = []
+        agent_obs = []
+
+        # Iterate through observations and process them
+        for sublist in obs:
+            if isinstance(sublist, dict):
+                # If sublist is a dictionary, process it directly
+                for agent_id in range(self.num_agents):
+                    player = f"player_{agent_id}"
+                    if player in sublist:
+                        share_obs.append(sublist[player]['WORLD.RGB'])
+                        agent_obs.append(sublist[player]['RGB'])
+            else:
+                # If sublist is a list, iterate over its elements
+                for agent_id in range(self.num_agents):
+                    player = f"player_{agent_id}"
+                    if player in sublist[0]:
+                        share_obs.append(sublist[0][player]['WORLD.RGB'])
+                        agent_obs.append(sublist[0][player]['RGB'])
+
+        # Convert the lists to numpy arrays and reshape if necessary
+        share_obs = np.array(share_obs)
+        agent_obs = np.array(agent_obs)
+        if share_obs.ndim == 5 and agent_obs.ndim == 5:
+            share_obs = share_obs.transpose(1, 0, 3, 2, 4)
+            agent_obs = agent_obs.transpose(1, 0, 3, 2, 4)
+        else:
+            share_obs = np.reshape(share_obs, (1,) + share_obs.shape)
+            agent_obs = np.reshape(agent_obs, (1,) + agent_obs.shape)
+
+        return share_obs, agent_obs
 
     def insert(self, data):
         
-        obs, rewards, done, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic = data
+        next_obs, obs, rewards, done, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic = data
         
         # Extract the boolean values for each player and convert to a boolean array
         done_new  = np.array([player_dict[f'player_{i}'] for player_dict in done for i in range(self.num_agents)], dtype=np.bool_)
@@ -234,17 +282,9 @@ class MeltingpotRunner(Runner):
         masks = np.ones(( 1, self.num_agents, self.n_rollout_threads, 1), dtype=np.float32)
         masks[done_new == True] = np.zeros(((done_new == True).sum(), 1), dtype=np.float32)
         
-        share_obs = []
-        agent_obs = []
         
-        for sublist in obs:
-            for agent_id in range(self.num_agents):
-                player= f"player_{agent_id}"    
-                share_obs.append(sublist[player]['WORLD.RGB'])
-                agent_obs.append(sublist[player]['RGB'])
-        
-        share_obs = np.array(share_obs).transpose(1, 0, 3, 2, 4)
-        agent_obs = np.array(agent_obs).transpose(1, 0, 3, 2, 4)
+        share_obs, agent_obs = self.process_obs( obs)
+        next_share_obs, next_agent_obs = self.process_obs(next_obs)
         print(f"share_obs shape {share_obs.shape}, agent_obs shape {agent_obs.shape}, rewards shape {rewards.shape}, masks shape {masks.shape} values shape {values.shape} actions shape {actions.shape} action_log_probs shape {action_log_probs.shape} rnn_states shape {rnn_states.shape} rnn_states_critic shape {rnn_states_critic.shape}")
         for agent_id in range(self.num_agents):
             
@@ -255,6 +295,8 @@ class MeltingpotRunner(Runner):
             
             self.buffer[agent_id].insert(share_obs[:, agent_id],
                                          agent_obs[:, agent_id],
+                                         next_share_obs[:, agent_id],
+                                         next_agent_obs[:, agent_id],
                                          rnn_states[:, agent_id].swapaxes( 1, 0),
                                          rnn_states_critic[:, agent_id].swapaxes( 1, 0),
                                          actions[:, agent_id].swapaxes( 1, 0),
@@ -329,9 +371,10 @@ class MeltingpotRunner(Runner):
         all_frames = []
         for episode in range(self.all_args.render_episodes):
             episode_rewards = []
-            obs = self.envs.reset()
+            #obs = self.envs.reset()
+            obs = self.envs.reset()[:, 0]
             if self.all_args.save_gifs:
-                image = self.envs.render('rgb_array')[0][0]
+                image = self.envs.render('rgb_array', has_mode=False)[0]
                 all_frames.append(image)
 
             rnn_states = np.zeros((self.n_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
@@ -342,30 +385,39 @@ class MeltingpotRunner(Runner):
                 
                 temp_actions_env = []
                 for agent_id in range(self.num_agents):
+                    player= f"player_{agent_id}"
                     if not self.use_centralized_V:
-                        share_obs = np.array(list(obs[:, agent_id]))
+                        #share_obs = np.array(list(obs[:, agent_id]))
+                        share_obs=np.array(list(np.expand_dims(obs[0][player]['WORLD.RGB'], axis=0)))
+                        #share_obs = np.array(list(np.expand_dims(obs[0][player]['RGB'], axis=0)))
                     self.trainer[agent_id].prep_rollout()
-                    action, rnn_state = self.trainer[agent_id].policy.act(np.array(list(obs[:, agent_id])),
+                    #action, rnn_state = self.trainer[agent_id].policy.act(np.array(list(obs[:, agent_id])),
+                    #                                                    rnn_states[:, agent_id],
+                    #                                                    masks[:, agent_id],
+                    #                                                    deterministic=True)
+                    action, rnn_state = self.trainer[agent_id].policy.act(np.array(list(np.expand_dims(obs[0][player]['RGB'], axis=0))),
                                                                         rnn_states[:, agent_id],
                                                                         masks[:, agent_id],
                                                                         deterministic=True)
-
                     action = action.detach().cpu().numpy()
                     # rearrange action
-                    if self.envs.action_space[agent_id].__class__.__name__ == 'MultiDiscrete':
-                        for i in range(self.envs.action_space[agent_id].shape):
-                            uc_action_env = np.eye(self.envs.action_space[agent_id].high[i]+1)[action[:, i]]
+                    if self.envs.action_space[player].__class__.__name__ == 'MultiDiscrete':
+                        for i in range(self.envs.action_space[player].shape):
+                            uc_action_env = np.eye(self.envs.action_space[player].high[i]+1)[action[:, i]]
                             if i == 0:
                                 action_env = uc_action_env
                             else:
                                 action_env = np.concatenate((action_env, uc_action_env), axis=1)
-                    elif self.envs.action_space[agent_id].__class__.__name__ == 'Discrete':
-                        action_env = np.squeeze(np.eye(self.envs.action_space[agent_id].n)[action], 1)
+                    elif self.envs.action_space[player].__class__.__name__ == 'Discrete':
+                        action_env = np.squeeze(np.eye(self.envs.action_space[player].n)[action], 1)
                     else:
                         raise NotImplementedError
 
                     temp_actions_env.append(action_env)
-                    rnn_states[:, agent_id] = _t2n(rnn_state)
+                    if isinstance(rnn_state, tuple):
+                        rnn_states[:, agent_id] = _t2n(rnn_state[0])
+                    else:
+                        rnn_states[:, agent_id] = _t2n(rnn_state)
                    
                 # [envs, agents, dim]
                 actions_env = []
@@ -376,25 +428,57 @@ class MeltingpotRunner(Runner):
                     actions_env.append(one_hot_action_env)
 
                 # Obser reward and next obs
+                actions_env = np.array(actions_env[0]).swapaxes(0, 1) #Armin
                 obs, rewards, dones, infos = self.envs.step(actions_env)
+                #Armin: start
+                obs = obs[0]
+                print(f"render reward shape {rewards}")
+                rewards = rewards[0]
+                summed_rewards = []
+                for agent_id in range(self.num_agents):
+                    summed_rewards.append(np.sum(rewards[player]))
+                summed_rewards = np.array(summed_rewards)
+                #Armin: end
                 episode_rewards.append(rewards)
 
-                rnn_states[dones == True] = np.zeros(((dones == True).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+                
+                rnn_states[dones == True] = np.zeros(((dones == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
                 masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-                masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
+                #rnn_states[dones == True] = np.zeros(((dones == True).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+                #masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
+                masks[dones == True] = np.zeros(((dones == True).sum(), self.num_agents, 1), dtype=np.float32)
 
                 if self.all_args.save_gifs:
-                    image = self.envs.render('rgb_array')[0][0]
+                    #image = self.envs.render('rgb_array')[0][0]
+                    image = self.envs.render('rgb_array', has_mode=False)[0]
                     all_frames.append(image)
                     calc_end = time.time()
                     elapsed = calc_end - calc_start
                     if elapsed < self.all_args.ifi:
                         time.sleep(self.all_args.ifi - elapsed)
+            player_rewards = {f"player_{agent_id}": [] for agent_id in range(self.num_agents)}
 
-            episode_rewards = np.array(episode_rewards)
+            # Accumulate rewards for each player
+            for episode in episode_rewards:
+                for agent_id in range(self.num_agents):
+                    player = f"player_{agent_id}"
+                    player_rewards[player].append(episode[player])
+
+            # Calculate the average reward for each player
+            average_episode_rewards = {}
             for agent_id in range(self.num_agents):
-                average_episode_rewards = np.mean(np.sum(episode_rewards[:, :, agent_id], axis=0))
-                print("eval average episode rewards of agent%i: " % agent_id + str(average_episode_rewards))
+                player = f"player_{agent_id}"
+                total_rewards = np.sum(player_rewards[player], axis=0)
+                average_episode_rewards[player] = np.mean(total_rewards)
+                
+            # Print the average rewards
+            for player, avg_reward in average_episode_rewards.items():
+                print(f"eval average episode rewards of {player}: {avg_reward}")
+            
+            #episode_rewards = np.array(episode_rewards)
+            #for agent_id in range(self.num_agents):
+            #    average_episode_rewards = np.mean(np.sum(episode_rewards[:, :, agent_id], axis=0))
+            #    print("eval average episode rewards of agent%i: " % agent_id + str(average_episode_rewards))
         
         if self.all_args.save_gifs:
             imageio.mimsave(str(self.gif_dir) + '/render.gif', all_frames, duration=self.all_args.ifi)

@@ -87,9 +87,13 @@ def main(args):
         all_args.use_recurrent_policy = True
         all_args.use_naive_recurrent_policy = False
     elif all_args.algorithm_name == "mappo":
-        print("u are choosing to use mappo, we set use_recurrent_policy & use_naive_recurrent_policy to be False")
-        all_args.use_recurrent_policy = False 
-        all_args.use_naive_recurrent_policy = False
+        print("RENDER, value of use_attention is {all_args.use_attention}")
+        if all_args.use_recurrent_policy or all_args.use_naive_recurrent_policy:
+            print("u are choosing to use mappo, we set use_recurrent_policy & use_naive_recurrent_policy to be True")
+        if all_args.use_attention and not (all_args.use_recurrent_policy or all_args.use_naive_recurrent_policy):
+            print("u are choosing to use mappo, we set use attention to be True and use_recurrent_policy & use_naive_recurrent_policy to be False")
+            all_args.use_recurrent_policy = False 
+            all_args.use_naive_recurrent_policy = False    
     elif all_args.algorithm_name == "ippo":
         print("u are choosing to use ippo, we set use_centralized_V to be False. Note that GRF is a fully observed game, so ippo is rmappo.")
         all_args.use_centralized_V = False

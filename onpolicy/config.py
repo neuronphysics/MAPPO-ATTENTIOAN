@@ -188,11 +188,16 @@ def get_config():
                         default=200, help="Max length for any episode")
 
     # network parameters
-    parser.add_argument("--use_attention", action='store_true',
+    parser.add_argument("--use_attention", type=bool,
                         default=False, help='Whether agent use the attention module or not')
     parser.add_argument("--attention_module", type=str, 
                         default= 'RIM', help='specify the name of attention module')
     parser.add_argument("--use_version_scoff", type=int, default=0, help="specify the version of SCOFF")
+    parser.add_argument("--scoff_num_units", type=int, default=4, help="specify the number of units in SCOFF")
+    parser.add_argument("--scoff_topk", type=int, default=3, help="specify the number of topk in SCOFF") 
+    parser.add_argument("--rim_num_units", type=int, default=6, help="specify the number of units in RIM")
+    parser.add_argument("--rim_topk", type=int, default=4, help="specify the number of topk in RIM")
+    
     parser.add_argument("--share_policy", action='store_false',
                         default=True, help='Whether agent share the same policy')
     parser.add_argument("--use_centralized_V", action='store_false',
@@ -201,7 +206,7 @@ def get_config():
                         help="Dimension of hidden layers for actor/critic networks")
     parser.add_argument("--use_stacked_frames", action='store_true',
                         default=False, help="Whether to use stacked_frames")
-    parser.add_argument("--hidden_size", type=int, default=64,
+    parser.add_argument("--hidden_size", type=int, default=96,
                         help="Dimension of hidden layers for actor/critic networks") 
     parser.add_argument("--layer_N", type=int, default=1,
                         help="Number of layers for actor/critic networks")
@@ -291,4 +296,10 @@ def get_config():
 
     # meltingpot parameter
     parser.add_argument("--downsample", action='store_false', default=True, help="the scale factor of each rendered image in saved video.")
+
+    # skill learing parameters
+    parser.add_argument("--skill_hidden_dim", type= int, default=512, help="specify the number of hidden units in the skill dynamics network")
+    parser.add_argument("--skill_max_num_experts", type= int, default=10, help="specify the number of experts in the skill dynamics network")
+    parser.add_argument("--dynamics_lr", type= int, default=3e-4, help ="Skill dynamics learning rate.")
+    parser.add_argument("--skill_dim", type=int, default=10, help="skill dimension")
     return parser

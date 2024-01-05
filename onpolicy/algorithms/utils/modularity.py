@@ -8,7 +8,7 @@ from SCOFFv2.rnn_models_scoffv2 import RNNModel as RNNModelScoffv2
 from RIMs.rnn_models_rim import RNNModel as RNNModelRim
 from RIMv2.rnn_models_rimv2 import RNNModel as RNNModelRimv2
 from utilities.RuleNetwork import RuleNetwork
-
+from typing import Any, Tuple
 
 class Identity(torch.autograd.Function):
   @staticmethod
@@ -93,14 +93,17 @@ class RIM(nn.Module):
 		return (h, c)
 
 	def layer(self, rim_layer, x, h, c = None, direction = 0, message_to_rule_network = None):
+		
 		batch_size = x.size(1)
+		print(f"layer bs modularity {batch_size}, data {x.shape}")
 		xs = list(torch.split(x, 1, dim = 0))
 		if direction == 1: xs.reverse()
 		xs = torch.cat(xs, dim = 0)
 
 		hidden = self.rim_transform_hidden((h, c))
 		entropy = 0
-		print(f"modularity RIM Layer xs {xs.shape} hidden {hidden[0].shape}")
+		
+		print(f"modularity RIM Layer xs {xs.shape} hidden {hidden[0][0].shape}")
 		outputs, hidden, _, _, _, entropy_ = rim_layer(xs, hidden, message_to_rule_network = message_to_rule_network)
 		entropy += entropy_
 
@@ -115,57 +118,58 @@ class RIM(nn.Module):
 		#	hs, cs = rim_layer(x, hs, cs)
 		#	outputs.append(hs.view(1, batch_size, -1))
 		hs, cs = self.rim_inverse_transform_hidden(hidden)
+		print(f"RIM Modularity hs :{hs.shape}")
 
 		outputs = list(torch.split(outputs, 1, dim = 0))
 
 		if direction == 1: outputs.reverse()
 		outputs = torch.cat(outputs, dim = 0)
-
+		print(f"RIM modularity layer --- output {outputs.shape} hs {hs.view(batch_size, -1).shape}, cs {cs.view(batch_size, -1).shape}")
 		if c is not None:
 			return outputs, hs.view(batch_size, -1), cs.view(batch_size, -1), entropy
 		else:
 			return outputs, hs.view(batch_size, -1)
-
+		
 	def forward(self, x, hidden = None, message_to_rule_network = None):
 		"""
 		Input: x (seq_len, batch_size, input_size
-			   hidden tuple[(num_layers * num_directions, batch_size, hidden_size)] (Optional)
+		       hidden tuple[(num_layers * num_directions, batch_size, hidden_size)] (Optional)
 		Output: outputs (batch_size, seqlen, hidden_size *  num_directions)
-				hidden tuple[(num_layers * num_directions, batch_size, hidden_size)]
+		        hidden tuple[(num_layers * num_directions, batch_size, hidden_size)]
 		"""
-		print(f" input RIM modularity {x.shape}")
+		print(f"Input RIM modularity forward {x.shape} hidden {hidden.shape}")
 		if self.batch_first:
 			x = x.transpose(0, 1)
 		h, c = None, None
 		if hidden is not None:
-			h, c = hidden[0], hidden[1]
-
-		
+			if isinstance(hidden, Tuple) and len(hidden)==2:
+			   h, c = hidden[0], hidden[1]
+			else:
+				h, c = hidden, hidden
 		hs = torch.zeros(self.n_layers * self.num_directions, x.size(1), self.hidden_size * self.num_units).to(self.device) if h is None else h
-
 		cs = None
 		if self.rnn_cell == 'LSTM':
 			cs = torch.zeros(self.n_layers * self.num_directions, x.size(1), self.hidden_size * self.num_units).to(self.device) if c is None else c
 		else:
 			cs = hs
-		print(f"RIM modularity: hs {hs.shape}")
+		print(f"RIM modularity before enter layer: hs {hs.shape}")
 		new_hs = torch.zeros(hs.size()).to(hs.device)
 		new_cs = torch.zeros(cs.size()).to(cs.device)
 		entropy = 0
 		for n in range(self.n_layers):
 			idx = n * self.num_directions
-			print(f"Inside modularity scrip RIM class input {x.shape} and hs {hs[idx].unsqueeze(0).shape} and cs {cs[idx].unsqueeze(0).shape}")
-			x_fw, new_hs[idx], new_cs[idx], entropy_ = self.layer(self.rimcell[idx], x,
-														hs[idx].unsqueeze(0), cs[idx].unsqueeze(0),
-														message_to_rule_network=message_to_rule_network)
-
+			print(f"Inside modularity scrip and RIM class forwward before layer-- input {x.shape} and hs {hs[:,idx].unsqueeze(0).shape} and cs {cs[:,idx].unsqueeze(0).shape} idx {idx} new_hs {new_hs[:,idx].shape}")
+			x_fw, new_hs[:,idx], new_cs[:,idx], entropy_ = self.layer(self.rimcell[idx], x.transpose(1,0).unsqueeze(0),
+																hs[:,idx].unsqueeze(0), cs[:,idx].unsqueeze(0),
+																message_to_rule_network=message_to_rule_network)
+			print(f"after layer RIM modularity x {x_fw.shape} new hs {new_hs[idx].shape}")
 			entropy += entropy_
 			if self.num_directions == 2:
 				idx = n * self.num_directions + 1
 				x_bw, new_hs[idx], new_cs[idx], entropy_ = self.layer(self.rimcell[idx], x,
-															hs[idx], cs[idx],
-															direction=1,
-															message_to_rule_network = message_to_rule_network)
+																		hs[idx], cs[idx],
+																		direction=1,
+																		message_to_rule_network = message_to_rule_network)
 				entropy += entropy_
 				x = torch.cat((x_fw, x_bw), dim = 2)
 			else:
@@ -174,6 +178,13 @@ class RIM(nn.Module):
 		#cs = torch.stack(cs, dim = 0)
 		if self.batch_first:
 			x = x.transpose(0, 1)
+		print(f" RIM class -- output {x.shape}, new hs {new_hs.shape}")
+		#x = x.squeeze()
+		x= x.permute(1,0,2)
+		new_hs = new_hs.permute(1,0,2)
+		new_cs = new_cs.permute(1,0,2)
+		print(f" RIM class -- final output {x.shape}, new hs {new_hs.shape}")
+		
 		if self.rnn_cell == 'GRU':
 			return x, (new_hs, new_hs)
 		else:

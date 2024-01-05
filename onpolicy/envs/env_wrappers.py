@@ -181,45 +181,29 @@ class VecEnvWrapper(ShareVecEnv):
         pass
 
 def worker(remote, parent_remote, env_fn_wrapper):
-    
+    parent_remote.close()
+    env = None
     try:
-        print("Worker started.")
-        parent_remote.close()
         env = env_fn_wrapper.x()
         while True:
-            print("Waiting for command...")
-            try:
-               cmd, data = remote.recv()
-               print(f"Received command: {cmd}")
-            except TypeError as e:
-                logging.error("Worker received TypeError: {}".format(e))
-                remote.send(('error', str(e)))  # Send an error message back to the main process
+            cmd, data = remote.recv()
             if cmd == 'step':
-                print("Step command received. Executing...")
                 ob, reward, done, info = env.step(data)
-                print("Step executed. Processing results in worker...")
-                print(f"Here inside worker function observation is {done}, {ob['player_6']['WORLD.RGB'].shape}")
-                # Check if done is a dictionary and all values are True
-                if isinstance(done, dict):
-                    done_values = [value for key_values in done.values() for value in key_values]
-                    if all(done_values):
+                if isinstance(done, dict):  # Assuming you are working with multi-agent environments
+                    all_done = all([d for done_list in done.values() for d in done_list])
+                    if all_done:
                         ob = env.reset()
-                        print(f"Here inside worker function after reset observation is {ob[0]['player_6']['WORLD.RGB'].shape}")
-                elif 'bool' in done.__class__.__name__:
-                    print("found bool in done ...")
-                    if done:
-                        ob = env.reset()
+                elif done:  # If it is just a boolean, considering single agent scenario
+                    ob = env.reset()
                 else:
                     if np.all(done):
                         ob = env.reset()
-                
                 remote.send((ob, reward, done, info))
-                
             elif cmd == 'reset':
                 ob = env.reset()
-                remote.send((ob))
+                remote.send(ob)
             elif cmd == 'render':
-                if data == "rgb_array":
+                if data=='rgb_array':
                     fr = env.render(mode=data)
                     remote.send(fr)
                 elif data == "human":
@@ -236,14 +220,16 @@ def worker(remote, parent_remote, env_fn_wrapper):
                 remote.send((env.observation_space, env.share_observation_space, env.action_space))
             else:
                 logging.error("Unrecognized command: {}".format(cmd))
-                remote.send(('error', 'Unrecognized command'))  # Send an error message for unrecognized commands
-                #raise NotImplementedError("`{}` is not implemented in the worker".format(cmd))
+                remote.send(('error', 'Unrecognized command'))  # Send an error message for unrecognized commands                    
+    except KeyboardInterrupt:
+        print('Worker: received KeyboardInterrupt')
     except Exception as e:
-        
-        logging.error(f"Error in child process of env_wrappers: {e}")
-        print("Traceback: ", traceback.format_exc())
+        print(f'Worker: encountered an exception {e}')
+        print(traceback.format_exc())
         remote.send(('error', str(e)))
     finally:
+        if env:
+            env.close()
         remote.close()
 
         
@@ -392,7 +378,7 @@ class SubprocVecEnv(ShareVecEnv):
             raise RuntimeError("No results were successfully processed from the worker environments.")
         else:
            obs, rews, dones, infos = zip(*results)
-           print(f"well, we are inside SubprocVecEnv class reward {rews} obs :{obs[0]['player_0']['WORLD.RGB'].shape}")
+           
         return np.stack(obs), np.stack(rews), np.stack(dones), infos
 
     def reset(self):
@@ -839,9 +825,12 @@ class DummyVecEnv(ShareVecEnv):
         for env in self.envs:
             env.close()
 
-    def render(self, mode="human"):
+    def render(self, mode="human", has_mode = True):
         if mode == "rgb_array":
-            return np.array([env.render(mode=mode) for env in self.envs])
+            if has_mode:
+                return np.array([env.render(mode=mode) for env in self.envs])
+            else:
+                return np.array([env.render() for env in self.envs])
         elif mode == "human":
             for env in self.envs:
                 env.render(mode=mode)

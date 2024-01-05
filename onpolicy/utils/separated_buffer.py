@@ -34,6 +34,9 @@ class SeparatedReplayBuffer(object):
 
         self.share_obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, *share_obs_shape), dtype=np.float32)
         self.obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, *obs_shape), dtype=np.float32)
+        
+        self.next_share_obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, *share_obs_shape), dtype=np.float32) ##new
+        self.next_obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, *obs_shape), dtype=np.float32) ##new
 
         self.rnn_states = np.zeros((self.episode_length + 1, self.n_rollout_threads, self.recurrent_N, self.rnn_hidden_size), dtype=np.float32)
         self.rnn_states_critic = np.zeros_like(self.rnn_states)
@@ -61,10 +64,14 @@ class SeparatedReplayBuffer(object):
     def update_factor(self, factor):
         self.factor = factor.copy()
 
-    def insert(self, share_obs, obs, rnn_states, rnn_states_critic, actions, action_log_probs,
+    def insert(self, share_obs, obs, next_share_obs, next_obs, rnn_states, rnn_states_critic, actions, action_log_probs,
                value_preds, rewards, masks, bad_masks=None, active_masks=None, available_actions=None):
         self.share_obs[self.step + 1] = share_obs.copy()
         self.obs[self.step + 1] = obs.copy()
+        # New: Insert next observations into the buffer
+        self.next_share_obs[self.step + 1] = next_share_obs.copy()
+        self.next_obs[self.step + 1] = next_obs.copy()
+
         self.rnn_states[self.step + 1] = rnn_states.copy()
         self.rnn_states_critic[self.step + 1] = rnn_states_critic.copy()
         self.actions[self.step] = actions.copy()
@@ -104,6 +111,8 @@ class SeparatedReplayBuffer(object):
     def after_update(self):
         self.share_obs[0] = self.share_obs[-1].copy()
         self.obs[0] = self.obs[-1].copy()
+        self.next_share_obs[0] = self.next_share_obs[-1].copy()#new
+        self.next_obs[0] = self.next_obs[-1].copy()#new
         self.rnn_states[0] = self.rnn_states[-1].copy()
         self.rnn_states_critic[0] = self.rnn_states_critic[-1].copy()
         self.masks[0] = self.masks[-1].copy()
@@ -236,7 +245,7 @@ class SeparatedReplayBuffer(object):
             active_masks_batch = []
             old_action_log_probs_batch = []
             adv_targ = []
-
+            
             for offset in range(num_envs_per_batch):
                 ind = perm[start_ind + offset]
                 share_obs_batch.append(self.share_obs[:-1, ind])
@@ -269,8 +278,10 @@ class SeparatedReplayBuffer(object):
             adv_targ = np.stack(adv_targ, 1)
 
             # States is just a (N, -1) from_numpy [N[1,dim]]
+            
             rnn_states_batch = np.stack(rnn_states_batch, 1).reshape(N, *self.rnn_states.shape[2:])
             rnn_states_critic_batch = np.stack(rnn_states_critic_batch, 1).reshape(N, *self.rnn_states_critic.shape[2:])
+            print(f"inside separated_buffer.py, rnn_states_batch.shape is {rnn_states_batch.shape} and rnn_states_critic_batch.shape is {rnn_states_critic_batch.shape}")
 
             # Flatten the (T, N, ...) from_numpys to (T * N, ...)
             share_obs_batch = _flatten(T, N, share_obs_batch)

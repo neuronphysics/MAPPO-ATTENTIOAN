@@ -106,6 +106,10 @@ class RNNModel(nn.Module):
 
     def forward(self, input, hidden, calc_mask=False, message_to_rule_network = None):
         extra_loss = 0.0
+        #print(f"rnn_models_rim RNNModel --- size of input before {input.shape}")
+        #input= input.permute(0,2,1)
+        
+        print(f"rnn_models_rim RNNModel --- size of input before encoder {input.shape}")
         emb = self.drop(self.encoder(input))
         weighted = None
         attn_vec = None
@@ -113,7 +117,10 @@ class RNNModel(nn.Module):
         #encoder_final_state = weighted.squeeze(0)
         if True:
             # for loop implementation with RNNCell
-            layer_input = emb
+            if emb.dim()==2:
+               layer_input = emb.unsqueeze(0)
+            else:
+               layer_input = emb 
             new_hidden = [[] for _ in range(self.nlayers)]
             if calc_mask:
                 masks = [[] for _ in range(self.nlayers)]
@@ -125,10 +132,10 @@ class RNNModel(nn.Module):
                 t0 = time.time()
                 self.bc_lst[idx_layer].blockify_params()
                 hx, cx = hidden[int(idx_layer)][0], hidden[int(idx_layer)][1]
-                for idx_step in range(input.shape[0]):
+                for idx_step in range(layer_input.shape[0]):
                     if idx_step % self.layer_dilation[idx_layer] == 0:
                         if idx_step % self.block_dilation[idx_layer] == 0:
-                            print(f"RNNModel class RIM hx {hx.shape} {idx_step}")
+                            print(f"RNNModel class RIM --- hx {hx.shape} {idx_step} emb size : {emb.shape}")
                             hx, cx, mask, entropy_ = self.bc_lst[idx_layer](layer_input[idx_step], hx, cx, idx_step, do_block = True, message_to_rule_network = message_to_rule_network)
                             entropy += entropy_
                         else:

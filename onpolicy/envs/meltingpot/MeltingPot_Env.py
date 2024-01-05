@@ -25,7 +25,7 @@ import cv2
 from meltingpot.utils.substrates import substrate
 PLAYER_STR_FORMAT = 'player_{index}'
 _WORLD_PREFIX = ['WORLD.RGB', 'INTERACTION_INVENTORIES', 'NUM_OTHERS_WHO_CLEANED_THIS_STEP']
-MAX_CYCLES = 1000
+MAX_CYCLES = 400
 
 _OBSERVATION_PREFIX = ['WORLD.RGB', 'RGB']
 

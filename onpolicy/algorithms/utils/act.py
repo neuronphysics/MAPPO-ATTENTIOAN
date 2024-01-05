@@ -10,7 +10,7 @@ class ACTLayer(nn.Module):
     :param use_orthogonal: (bool) whether to use orthogonal initialization.
     :param gain: (float) gain of the output layer of the network.
     """
-    def __init__(self, action_space, inputs_dim, use_orthogonal, gain):
+    def __init__(self, action_space, inputs_dim, use_orthogonal, gain, args= None):
         super(ACTLayer, self).__init__()
         self.mixed_action = False
         self.multi_discrete = False
@@ -63,7 +63,7 @@ class ACTLayer(nn.Module):
 
             actions = torch.cat(actions, -1)
             action_log_probs = torch.sum(torch.cat(action_log_probs, -1), -1, keepdim=True)
-            print(f"inside ACTLayer class (act.py) actions (mixed_action): {actions}, action_log_probs: {action_log_probs}")
+            #print(f"inside ACTLayer class (act.py) actions (mixed_action): {actions}, action_log_probs: {action_log_probs}")
             
         elif self.multi_discrete:
             actions = []
@@ -77,7 +77,7 @@ class ACTLayer(nn.Module):
 
             actions = torch.cat(actions, -1)
             action_log_probs = torch.cat(action_log_probs, -1)
-            print(f"inside ACTLayer class (act.py) actions (multi_discrete): {actions}, action_log_probs: {action_log_probs}")
+            #print(f"inside ACTLayer class (act.py) actions (multi_discrete): {actions}, action_log_probs: {action_log_probs}")
         
         elif self.mujoco_box:
             action_logits = self.action_out(x)
