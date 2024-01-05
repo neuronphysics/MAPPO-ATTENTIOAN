@@ -1,0 +1,5 @@
+*.pyc
+**/results/
+# Ignore .DS_Store (macOS folder metadata)
+.DS_Store
+core.*
