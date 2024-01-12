@@ -22,6 +22,7 @@ class SeparatedReplayBuffer(object):
         self._use_popart = args.use_popart
         self._use_valuenorm = args.use_valuenorm
         self._use_proper_time_limits = args.use_proper_time_limits
+        self._skill_dim =args.skill_dim
 
         obs_shape = get_shape_from_obs_space(obs_space)
         share_obs_shape = get_shape_from_obs_space(share_obs_space)
@@ -43,7 +44,7 @@ class SeparatedReplayBuffer(object):
 
         self.value_preds = np.zeros((self.episode_length + 1, self.n_rollout_threads, 1), dtype=np.float32)
         self.returns = np.zeros((self.episode_length + 1, self.n_rollout_threads, 1), dtype=np.float32)
-        
+        self.skills = np.zeros((self.episode_length, self.n_rollout_threads, self._skill_dim), dtype=np.float32)  # Assuming skill_dim is defined
         if act_space.__class__.__name__ == 'Discrete':
             self.available_actions = np.ones((self.episode_length + 1, self.n_rollout_threads, act_space.n), dtype=np.float32)
         else:
@@ -54,7 +55,7 @@ class SeparatedReplayBuffer(object):
         self.actions = np.zeros((self.episode_length, self.n_rollout_threads, act_shape), dtype=np.float32)
         self.action_log_probs = np.zeros((self.episode_length, self.n_rollout_threads, act_shape), dtype=np.float32)
         self.rewards = np.zeros((self.episode_length, self.n_rollout_threads, 1), dtype=np.float32)
-        
+        self.intrinsic_rewards = np.zeros((self.episode_length, self.n_rollout_threads, 1), dtype=np.float32)
         self.masks = np.ones((self.episode_length + 1, self.n_rollout_threads, 1), dtype=np.float32)
         self.bad_masks = np.ones_like(self.masks)
         self.active_masks = np.ones_like(self.masks)
@@ -64,13 +65,18 @@ class SeparatedReplayBuffer(object):
     def update_factor(self, factor):
         self.factor = factor.copy()
 
+    def update_intrinsic_rewards(self, intrinsic_rewards):
+        self.intrinsic_rewards = intrinsic_rewards.copy()
+
     def insert(self, share_obs, obs, next_share_obs, next_obs, rnn_states, rnn_states_critic, actions, action_log_probs,
-               value_preds, rewards, masks, bad_masks=None, active_masks=None, available_actions=None):
+               value_preds, rewards, masks, intrinsic_rewards, skills, bad_masks=None, active_masks=None, available_actions=None):
         self.share_obs[self.step + 1] = share_obs.copy()
         self.obs[self.step + 1] = obs.copy()
         # New: Insert next observations into the buffer
         self.next_share_obs[self.step + 1] = next_share_obs.copy()
         self.next_obs[self.step + 1] = next_obs.copy()
+        self.skills[self.step] = skills.copy()
+        
 
         self.rnn_states[self.step + 1] = rnn_states.copy()
         self.rnn_states_critic[self.step + 1] = rnn_states_critic.copy()
@@ -78,6 +84,7 @@ class SeparatedReplayBuffer(object):
         self.action_log_probs[self.step] = action_log_probs.copy()
         self.value_preds[self.step] = value_preds.copy()
         self.rewards[self.step] = rewards.copy()
+        self.intrinsic_rewards[self.step] =intrinsic_rewards.copy()
         self.masks[self.step + 1] = masks.copy()
         if bad_masks is not None:
             self.bad_masks[self.step + 1] = bad_masks.copy()
@@ -88,16 +95,20 @@ class SeparatedReplayBuffer(object):
 
         self.step = (self.step + 1) % self.episode_length
 
-    def chooseinsert(self, share_obs, obs, rnn_states, rnn_states_critic, actions, action_log_probs,
-                     value_preds, rewards, masks, bad_masks=None, active_masks=None, available_actions=None):
+    def chooseinsert(self, share_obs, obs, next_share_obs, next_obs, rnn_states, rnn_states_critic, actions, action_log_probs,
+                     value_preds, rewards, masks, intrinsic_rewards, skills, bad_masks=None, active_masks=None, available_actions=None):
         self.share_obs[self.step] = share_obs.copy()
         self.obs[self.step] = obs.copy()
+        self.next_share_obs[self.step ] = next_share_obs.copy()
+        self.next_obs[self.step ] = next_obs.copy()
+        self.skills[self.step] = skills.copy()
         self.rnn_states[self.step + 1] = rnn_states.copy()
         self.rnn_states_critic[self.step + 1] = rnn_states_critic.copy()
         self.actions[self.step] = actions.copy()
         self.action_log_probs[self.step] = action_log_probs.copy()
         self.value_preds[self.step] = value_preds.copy()
         self.rewards[self.step] = rewards.copy()
+        self.intrinsic_rewards[self.step] =intrinsic_rewards.copy()
         self.masks[self.step + 1] = masks.copy()
         if bad_masks is not None:
             self.bad_masks[self.step + 1] = bad_masks.copy()
@@ -113,9 +124,11 @@ class SeparatedReplayBuffer(object):
         self.obs[0] = self.obs[-1].copy()
         self.next_share_obs[0] = self.next_share_obs[-1].copy()#new
         self.next_obs[0] = self.next_obs[-1].copy()#new
+        self.skills[0] = self.skills[-1].copy()
         self.rnn_states[0] = self.rnn_states[-1].copy()
         self.rnn_states_critic[0] = self.rnn_states_critic[-1].copy()
         self.masks[0] = self.masks[-1].copy()
+        self.intrinsic_rewards[0] = self.intrinsic_rewards[-1].copy()
         self.bad_masks[0] = self.bad_masks[-1].copy()
         self.active_masks[0] = self.active_masks[-1].copy()
         if self.available_actions is not None:
@@ -189,6 +202,8 @@ class SeparatedReplayBuffer(object):
 
         share_obs = self.share_obs[:-1].reshape(-1, *self.share_obs.shape[2:])
         obs = self.obs[:-1].reshape(-1, *self.obs.shape[2:])
+        next_obs = self.next_obs[:-1].reshape(-1, *self.next_obs.shape[2:])###
+        skills = self.skills[:-1].reshape(-1, *self.skills.shape[2:])###
         rnn_states = self.rnn_states[:-1].reshape(-1, *self.rnn_states.shape[2:])
         rnn_states_critic = self.rnn_states_critic[:-1].reshape(-1, *self.rnn_states_critic.shape[2:])
         actions = self.actions.reshape(-1, self.actions.shape[-1])
@@ -205,6 +220,8 @@ class SeparatedReplayBuffer(object):
             # obs size [T+1 N Dim]-->[T N Dim]-->[T*N,Dim]-->[index,Dim]
             share_obs_batch = share_obs[indices]
             obs_batch = obs[indices]
+            next_obs_batch = next_obs[indices]##new
+            skills_batch = skills[indices]##new
             rnn_states_batch = rnn_states[indices]
             rnn_states_critic_batch = rnn_states_critic[indices]
             actions_batch = actions[indices]
@@ -222,7 +239,7 @@ class SeparatedReplayBuffer(object):
             else:
                 adv_targ = advantages[indices]
 
-            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, adv_targ, available_actions_batch
+            yield share_obs_batch, obs_batch, next_obs_batch, skills_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, adv_targ, available_actions_batch
 
     def naive_recurrent_generator(self, advantages, num_mini_batch):
         n_rollout_threads = self.rewards.shape[1]

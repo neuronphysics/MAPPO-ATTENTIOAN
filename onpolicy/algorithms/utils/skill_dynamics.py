@@ -99,8 +99,11 @@ class SkillDynamics(nn.Module):
                  z_range= (-1,1), 
                  device=torch.device('cuda' if torch.cuda.is_available() else 'cpu') ,
                  z_type = 'discrete', 
-                 prior_samples=100, 
-                 dynamics_reg_hiddens=False, 
+                 prior_samples = 100, 
+                 dynamics_reg_hiddens = False, 
+                 dynamics_orth_reg = True,
+                 dynamics_l2_reg = False,
+                 dynamics_spectral_norm = False,#dynamics spectral norm
                  variance=1):
         super().__init__()
 
@@ -115,8 +118,12 @@ class SkillDynamics(nn.Module):
         self.z_dist = D.Uniform(z_range[0],z_range[1])
         self.variance = variance
         self._dynamics_reg_hiddens = dynamics_reg_hiddens
+        self._dynamics_orth_reg = dynamics_orth_reg
+        self._dynamics_spectral_norm = dynamics_spectral_norm
+        self._dynamics_l2_reg = dynamics_l2_reg
         self.device = device
         obs_shape = obs_space.shape
+
         # Assuming obs_shape is something like (batch_size, dim1, dim2, ...)
         self.obs_dim = int(np.prod(obs_shape[1:]))
         input_dim = self.obs_dim + self.z_dim
@@ -219,7 +226,7 @@ class SkillDynamics(nn.Module):
         norm_next_obs = self.bn_target(next_obs)
         return gmm.log_prob(norm_next_obs), log_prob_stick_break
 
-    def compute_reward(self, obs, z, next_obs, weights=None):
+    def _calculate_intrinsic_rewards(self, obs, z, next_obs, weights=None):
         num_reps = self.num_reps if self.z_type=='cont' else self.z_dim
         if self.z_type=='cont':
             alt_obs = obs.repeat(num_reps,1) # [Batch_size*num_reps, obs_dim]
@@ -249,3 +256,15 @@ class SkillDynamics(nn.Module):
                 diff, -50, 50)).sum(axis=-1))
         # print(reward.shape)
         return reward, {'log_prob':log_prob,'alt_log_prob':alt_log_prob,'log_prob_stick_breaking':log_prob_stick_breaking, 'alt_log_prob_stick_breaking':alt_log_prob_stick_breaking, 'num_higher_prob':((-diff)>=0).sum().item()}
+    
+    def compute_loss(self, next_obs, obs, z):
+        next_dynamics_obs = next_obs - obs
+        log_prob, log_prob_stick_break = self.get_log_prob(obs, z, next_dynamics_obs,training=True)
+        dynamics_loss = -torch.mean(log_prob + log_prob_stick_break)
+        orth_loss = self.orthogonal_regularization()
+        l2_loss = self.l2_regularization()
+        if self._dynamics_orth_reg:
+            dynamics_loss += orth_loss
+        if self._dynamics_l2_reg and not self._dynamics_spectral_norm:
+            dynamics_loss += l2_loss
+        return dynamics_loss

@@ -33,8 +33,9 @@ def flatten_lists(input_list):
     return concatenated_arrays
 
 class MeltingpotRunner(Runner):
-    def __init__(self, config):
+    def __init__(self, config, discriminator):
         super(MeltingpotRunner, self).__init__(config)
+        self.discriminator = discriminator
        
     def run(self):
         obs = self.warmup()   
@@ -49,20 +50,24 @@ class MeltingpotRunner(Runner):
 
             for step in range(self.episode_length):
                 # Sample actions
-                values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env = self.collect(step)
+                values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env, skills, intrinsic_rewards = self.collect(step)
 
                 # Obser reward and next obs
                 next_obs, rewards, dones, infos = self.envs.step(actions)
                 print(f"After envs.step {step} in MeltingpotRunner (separate) for action size {actions.shape}, the reward {rewards} dones {dones}")
-
-                data = next_obs, obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic 
-
+                # Calculate intrinsic rewards using discriminator
+                intrinsic_rewards = s
+                data = next_obs, obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic, skills, intrinsic_rewards
+                
                 # insert data into buffer
                 self.insert(data)
                 obs = next_obs
 
             # compute return and update network
             self.compute()
+            # Update discriminator
+            self.train_discriminator()
+            # Existing code for policy training
             train_infos = self.train()
             
             # post process
@@ -144,17 +149,23 @@ class MeltingpotRunner(Runner):
         action_log_probs = []
         rnn_states = []
         rnn_states_critic = []
-
+        skills =[]
+        intrinsic_rewards =[]
         for agent_id in range(self.num_agents):
             self.trainer[agent_id].prep_rollout()
-            value, action, action_log_prob, rnn_state, rnn_state_critic \
+            
+            value, action, action_log_prob, rnn_state, rnn_state_critic, skills_dynamics \
                 = self.trainer[agent_id].policy.get_actions(self.buffer[agent_id].share_obs[step],
                                                             self.buffer[agent_id].obs[step],
                                                             self.buffer[agent_id].rnn_states[step],
                                                             self.buffer[agent_id].rnn_states_critic[step],
                                                             self.buffer[agent_id].masks[step])
+            intrinsic_reward = self.trainer[agent_id].policy_calculate_intrinsic_rewards(self.buffer[agent_id].obs[step], 
+                                                                                         skills_dynamics,
+                                                                                         self.buffer[agent_id].next_obs[step])
             # [agents, envs, dim]
             #value: torch.tensor, action: torch.tensor, action_log_prob :torch.tensor, rnn_states_actor: tuple(torch.tensor, torch.tensor), rnn_state_critic: tuple(torch.tensor, torch.tensor)
+            
             values.append(_t2n(value))
             action = _t2n(action)
             # rearrange action
@@ -186,8 +197,8 @@ class MeltingpotRunner(Runner):
             action_log_probs.append(_t2n(action_log_prob))
             rnn_states.append(_t2n(rnn_state[0]))
             rnn_states_critic.append( _t2n(rnn_state_critic[0]))
-            
-
+            skills.append(_t2n(skills_dynamics))
+            intrinsic_rewards.append(_t2n(intrinsic_reward))
         # [envs, agents, dim]
         actions_env = []
         for i in range(self.n_rollout_threads):
@@ -202,6 +213,8 @@ class MeltingpotRunner(Runner):
         action_log_probs = np.array(action_log_probs) if isinstance(action_log_probs, list) else action_log_probs
         rnn_states = np.array(rnn_states) if isinstance(rnn_states, list) else rnn_states
         rnn_states_critic = np.array(rnn_states_critic) if isinstance(rnn_states_critic, list) else rnn_states_critic
+        skills = np.array(skills) if isinstance(skills, list) else skills ###new
+        intrinsic_rewards = np.array(intrinsic_rewards) if isinstance(intrinsic_rewards, list) else intrinsic_rewards ###new
 
         values = values.squeeze(-1).transpose(1, 0, 2)
         if actions.ndim==3:
@@ -218,6 +231,16 @@ class MeltingpotRunner(Runner):
         if rnn_states_critic.ndim==3:
             rnn_states_critic = rnn_states_critic[:, np.newaxis, :, :]
         rnn_states_critic = rnn_states_critic.transpose(1, 0, 2, 3)
+        ###### This part should be tested ####
+        if skills.ndim==3:
+            skills = skills.transpose(2, 0, 1)
+        else:
+            skills = skills.squeeze(-1).transpose(1, 0, 2)
+        if intrinsic_rewards.ndim==3:
+            intrinsic_rewards = intrinsic_rewards.transpose(2, 0, 1)
+        else:
+            intrinsic_rewards = intrinsic_rewards.squeeze(-1).transpose(1, 0, 2)
+        ###### End #####
         #print("AFTER SQUEEZING\n values are \n", values.shape, "\n actions are \n", actions.shape, "\n action log probs are \n ", action_log_probs.shape, " \n rnn states are \n", rnn_states.shape, "\n rnn states critic are \n", rnn_states_critic.shape, "\n length of actions env \n", len(actions_env))
         #print(f"size of values {values.shape} size of actions {actions.shape} size of action log probs {action_log_probs.shape} size of rnn states {rnn_states.shape} size of rnn states critic {rnn_states_critic.shape}")
         #values (1, num_agent, n_rollout)
@@ -225,7 +248,7 @@ class MeltingpotRunner(Runner):
         #rnn states (1, num_agent, n_rollout, hidden_size)
         #rnn_states_critic (1, num_agent, n_rollout, hidden_size)
         
-        return values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env
+        return values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env, skills, intrinsic_rewards
     
     def process_obs(self, obs):
         # Initialize lists to store processed observations
@@ -263,7 +286,7 @@ class MeltingpotRunner(Runner):
 
     def insert(self, data):
         
-        next_obs, obs, rewards, done, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic = data
+        next_obs, obs, rewards, done, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic, skills, intrinsic_rewards = data
         
         # Extract the boolean values for each player and convert to a boolean array
         done_new  = np.array([player_dict[f'player_{i}'] for player_dict in done for i in range(self.num_agents)], dtype=np.bool_)
@@ -303,7 +326,9 @@ class MeltingpotRunner(Runner):
                                          action_log_probs[:, agent_id].swapaxes( 1, 0),
                                          values[:, agent_id].swapaxes( 1, 0),
                                          rewards[:, agent_id].swapaxes( 1, 0),
-                                         masks[:, agent_id])
+                                         masks[:, agent_id],
+                                         skills[:, agent_id],###should be tested ###TODO
+                                         intrinsic_rewards[:,agent_id])
 
     @torch.no_grad()
     def eval(self, total_num_steps):
@@ -482,3 +507,5 @@ class MeltingpotRunner(Runner):
         
         if self.all_args.save_gifs:
             imageio.mimsave(str(self.gif_dir) + '/render.gif', all_frames, duration=self.all_args.ifi)
+
+

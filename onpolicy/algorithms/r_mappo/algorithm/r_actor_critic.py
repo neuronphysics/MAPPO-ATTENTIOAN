@@ -3,11 +3,11 @@ import torch.nn as nn
 from onpolicy.algorithms.utils.util import init, check, calculate_conv_params
 from onpolicy.algorithms.utils.cnn import CNNBase, Encoder
 from onpolicy.algorithms.utils.modularity import RIM, SCOFF
-from onpolicy.algorithms.utils.skill_dynamics import SkillDynamics
 from onpolicy.algorithms.utils.mlp import MLPBase
 from onpolicy.algorithms.utils.rnn import RNNLayer
 from onpolicy.algorithms.utils.act import ACTLayer
 from onpolicy.algorithms.utils.popart import PopArt
+from onpolicy.algorithms.utils.skill_dynamics import SkillDynamics
 from onpolicy.utils.util import get_shape_from_obs_space
 from absl import logging
 
@@ -29,6 +29,7 @@ class R_Actor(nn.Module):
         self._use_naive_recurrent_policy = args.use_naive_recurrent_policy
         self._use_recurrent_policy = args.use_recurrent_policy
         self._recurrent_N = args.recurrent_N
+        self._z_dim = args.skill_dim
         self._use_version_scoff = args.use_version_scoff
         self.tpdv = dict(dtype=torch.float32, device=device)
         
@@ -92,7 +93,7 @@ class R_Actor(nn.Module):
                self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
         
         self.dynamics = SkillDynamics(args, self.hidden_size)
-        self.act = ACTLayer(action_space, self.hidden_size, self._use_orthogonal, self._gain)
+        self.act = ACTLayer(action_space, self.hidden_size + self._z_dim  , self._use_orthogonal, self._gain)
 
         self.to(device)
         self.algo = args.algorithm_name
@@ -134,9 +135,11 @@ class R_Actor(nn.Module):
                actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
                print(f"actor features shape after normal RNN in an actor network (lstm).... {actor_features.shape} {rnn_states.shape}")
                rnn_states =rnn_states.permute(1,0,2)
+        skills = self.dynamics(rnn_states)
+        actor_features =torch.cat([actor_features, skills], dim=1)# combine skills and actor features 
         actions, action_log_probs = self.act(actor_features, available_actions, deterministic)
 
-        return actions, action_log_probs, rnn_states
+        return actions, action_log_probs, rnn_states, skills
 
     def evaluate_actions(self, obs, rnn_states, action, masks, available_actions=None, active_masks=None):
         """

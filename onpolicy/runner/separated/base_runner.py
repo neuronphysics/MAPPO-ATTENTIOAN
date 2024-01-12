@@ -54,6 +54,8 @@ class Runner(object):
             if not os.path.exists(self.log_dir):
                 os.makedirs(self.log_dir)
             self.writter = SummaryWriter(self.log_dir)
+            
+            
             self.save_dir = str(self.run_dir / 'models')
             if not os.path.exists(self.save_dir):
                 os.makedirs(self.save_dir)
@@ -69,6 +71,8 @@ class Runner(object):
                 if not os.path.exists(self.log_dir):
                     os.makedirs(self.log_dir)
                 self.writter = SummaryWriter(self.log_dir)
+                # Add the following line to attach gradient hooks
+                
                 self.save_dir = str(self.run_dir / 'models')
                 if not os.path.exists(self.save_dir):
                     os.makedirs(self.save_dir)
@@ -114,7 +118,8 @@ class Runner(object):
                # policy network
             
             self.policy.append(po)
-
+        # Add the following line to attach gradient hooks
+        self.attach_gradient_hooks()
         #if self.model_dir is not None:
         #    self.restore()
 
@@ -152,6 +157,25 @@ class Runner(object):
 
     def collect(self, step):
         raise NotImplementedError
+    
+    def attach_gradient_hooks(self):
+        for agent_id in range(self.num_agents):
+            policy_actor = self.policy[agent_id].actor
+            policy_critic = self.policy[agent_id].critic
+            if policy_actor is not None:
+               self.attach_hooks_to_parameters(policy_actor, agent_id, 'actor')
+            if policy_critic is not None:
+               self.attach_hooks_to_parameters(policy_critic, agent_id, 'critic')
+
+    def attach_hooks_to_parameters(self, model, agent_id, model_type):
+        for name, param in model.named_parameters():
+            def hook_fn(grad):
+                if torch.isnan(grad).any():
+                   self.writter.add_scalar(f'{model_type}_agent{agent_id}/{name}_nan_gradients', 1)
+                else:
+                   self.writter.add_scalar(f'{model_type}_agent{agent_id}/{name}_nan_gradients', 0)
+        
+            param.register_hook(hook_fn)
 
     def insert(self, data):
         raise NotImplementedError
@@ -210,7 +234,9 @@ class Runner(object):
                                                             available_actions,
                                                             self.buffer[agent_id].active_masks[:-1].reshape(-1, *self.buffer[agent_id].active_masks.shape[2:]))
 
-            factor = factor*_t2n(torch.prod(torch.exp(new_actions_logprob-old_actions_logprob),dim=-1).reshape(self.episode_length,self.n_rollout_threads,1))
+            
+            factor = factor*_t2n(torch.prod(torch.exp(new_actions_logprob-old_actions_logprob),dim=-1).reshape(self.episode_length,self.n_rollout_threads,1)) # what is happening here???
+            
             train_infos.append(train_info)      
             self.buffer[agent_id].after_update()
 

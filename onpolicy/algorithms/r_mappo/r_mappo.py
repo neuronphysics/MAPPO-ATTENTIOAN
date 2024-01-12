@@ -39,6 +39,8 @@ class R_MAPPO():
         self._use_valuenorm = args.use_valuenorm
         self._use_value_active_masks = args.use_value_active_masks
         self._use_policy_active_masks = args.use_policy_active_masks
+        ###skill learing ####
+        self._num_training_skill = args.num_training_skill_dynamics
         
         assert (self._use_popart and self._use_valuenorm) == False, ("self._use_popart and self._use_valuenorm can not be set True simultaneously")
         
@@ -101,7 +103,7 @@ class R_MAPPO():
         :return actor_grad_norm: (torch.Tensor) gradient norm from actor update.
         :return imp_weights: (torch.Tensor) importance sampling weights.
         """
-        share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \
+        share_obs_batch, obs_batch, next_obs_batch, skills_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \
         value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
         adv_targ, available_actions_batch = sample
 
@@ -136,6 +138,7 @@ class R_MAPPO():
         policy_loss = policy_action_loss
 
         self.policy.actor_optimizer.zero_grad()
+        self.policy.dynamics.dynamics_opt.zero_grad()
 
         if update_actor:
             (policy_loss - dist_entropy * self.entropy_coef).backward()
@@ -144,7 +147,14 @@ class R_MAPPO():
             actor_grad_norm = nn.utils.clip_grad_norm_(self.policy.actor.parameters(), self.max_grad_norm)
         else:
             actor_grad_norm = get_gard_norm(self.policy.actor.parameters())
-
+        ### New 
+        skill_dynamics_loss = []
+        for _ in range(self._num_training_skill):
+            dynamics_loss = self.policy.dynamics.compute_loss(next_obs_batch, obs_batch, skills_batch)
+            skill_dynamics_loss.append(skill_dynamics_loss)
+            dynamics_loss.backward()
+            self.policy.dynamics.dynamics_opt.step()
+        ##new
         self.policy.actor_optimizer.step()
 
         # critic update
@@ -161,7 +171,7 @@ class R_MAPPO():
 
         self.policy.critic_optimizer.step()
 
-        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights
+        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, skill_dynamics_loss
 
     def train(self, buffer, update_actor=True):
         """
@@ -190,6 +200,7 @@ class R_MAPPO():
         train_info['actor_grad_norm'] = 0
         train_info['critic_grad_norm'] = 0
         train_info['ratio'] = 0
+        train_info['skill_loss'] = 0 ##new
 
         for _ in range(self.ppo_epoch):
             if self._use_recurrent_policy:
@@ -201,7 +212,7 @@ class R_MAPPO():
 
             for sample in data_generator:
 
-                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights \
+                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, dynamics_loss \
                     = self.ppo_update(sample, update_actor)
 
                 train_info['value_loss'] += value_loss.item()
@@ -210,6 +221,7 @@ class R_MAPPO():
                 train_info['actor_grad_norm'] += actor_grad_norm
                 train_info['critic_grad_norm'] += critic_grad_norm
                 train_info['ratio'] += imp_weights.mean()
+                train_info['skill_loss'] += dynamics_loss.mean() ##new
 
         num_updates = self.ppo_epoch * self.num_mini_batch
 
@@ -221,7 +233,9 @@ class R_MAPPO():
     def prep_training(self):
         self.policy.actor.train()
         self.policy.critic.train()
+        self.policy.actor.dynamics.train() ###new 
 
     def prep_rollout(self):
         self.policy.actor.eval()
         self.policy.critic.eval()
+        self.policy.actor.dynamics.eval()###new

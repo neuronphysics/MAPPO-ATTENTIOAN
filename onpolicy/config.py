@@ -298,8 +298,9 @@ def get_config():
     parser.add_argument("--downsample", action='store_false', default=True, help="the scale factor of each rendered image in saved video.")
 
     # skill learing parameters
-    parser.add_argument("--skill_hidden_dim", type= int, default=512, help="specify the number of hidden units in the skill dynamics network")
-    parser.add_argument("--skill_max_num_experts", type= int, default=10, help="specify the number of experts in the skill dynamics network")
-    parser.add_argument("--dynamics_lr", type= int, default=3e-4, help ="Skill dynamics learning rate.")
-    parser.add_argument("--skill_dim", type=int, default=10, help="skill dimension")
+    parser.add_argument("--skill_hidden_dim", type = int, default=512, help="specify the number of hidden units in the skill dynamics network")
+    parser.add_argument("--skill_max_num_experts", type = int, default=10, help="specify the number of experts in the skill dynamics network")
+    parser.add_argument("--dynamics_lr", type = int, default=3e-4, help ="Skill dynamics learning rate.")
+    parser.add_argument("--skill_dim", type =int, default=10, help="skill dimension")
+    parser.add_argument("--num_training_skill_dynamics", type = int , default=5, help="skill dynamics training steps")
     return parser
