@@ -98,7 +98,7 @@ class R_Actor(nn.Module):
         self.to(device)
         self.algo = args.algorithm_name
 
-    def forward(self, obs, rnn_states, masks, available_actions=None, deterministic=False):
+    def forward(self, obs, rnn_states, skills, masks, available_actions=None, deterministic=False):
         """
         Compute actions from the given inputs.
         :param obs: (np.ndarray / torch.Tensor) observation inputs into network.
@@ -135,7 +135,7 @@ class R_Actor(nn.Module):
                actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
                print(f"actor features shape after normal RNN in an actor network (lstm).... {actor_features.shape} {rnn_states.shape}")
                rnn_states =rnn_states.permute(1,0,2)
-        skills = self.dynamics(rnn_states)
+        skills = self.dynamics(rnn_states, skills)
         actor_features =torch.cat([actor_features, skills], dim=1)# combine skills and actor features 
         actions, action_log_probs = self.act(actor_features, available_actions, deterministic)
 

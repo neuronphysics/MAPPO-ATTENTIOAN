@@ -33,9 +33,9 @@ def flatten_lists(input_list):
     return concatenated_arrays
 
 class MeltingpotRunner(Runner):
-    def __init__(self, config, discriminator):
+    def __init__(self, config):
         super(MeltingpotRunner, self).__init__(config)
-        self.discriminator = discriminator
+        
        
     def run(self):
         obs = self.warmup()   
@@ -56,7 +56,7 @@ class MeltingpotRunner(Runner):
                 next_obs, rewards, dones, infos = self.envs.step(actions)
                 print(f"After envs.step {step} in MeltingpotRunner (separate) for action size {actions.shape}, the reward {rewards} dones {dones}")
                 # Calculate intrinsic rewards using discriminator
-                intrinsic_rewards = s
+                
                 data = next_obs, obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic, skills, intrinsic_rewards
                 
                 # insert data into buffer
@@ -65,8 +65,7 @@ class MeltingpotRunner(Runner):
 
             # compute return and update network
             self.compute()
-            # Update discriminator
-            self.train_discriminator()
+            
             # Existing code for policy training
             train_infos = self.train()
             
@@ -159,6 +158,7 @@ class MeltingpotRunner(Runner):
                                                             self.buffer[agent_id].obs[step],
                                                             self.buffer[agent_id].rnn_states[step],
                                                             self.buffer[agent_id].rnn_states_critic[step],
+                                                            self.buffer[agent_id].skills[step],
                                                             self.buffer[agent_id].masks[step])
             intrinsic_reward = self.trainer[agent_id].policy_calculate_intrinsic_rewards(self.buffer[agent_id].obs[step], 
                                                                                          skills_dynamics,

@@ -49,6 +49,7 @@ def get_activation_fn(name: Optional[str] = None):
         name))
 
 
+
 class SlimFC(nn.Module):
     """Simple PyTorch version of `linear` function"""
 
@@ -58,7 +59,8 @@ class SlimFC(nn.Module):
                  initializer: Any = None,
                  activation_fn: Any = None,
                  use_bias: bool = True,
-                 bias_init: float = 0.0):
+                 bias_init: float = 0.0,
+                 apply_spectral_norm: bool = False):
         """Creates a standard FC layer, similar to torch.nn.Linear
 
         Args:
@@ -68,6 +70,7 @@ class SlimFC(nn.Module):
             activation_fn (Any): Activation function at the end of layer
             use_bias (bool): Whether to add bias weights or not
             bias_init (float): Initalize bias weights to bias_init const
+            apply_spectral_norm (bool): Apply spectral normalization to the linear layer
         """
         super(SlimFC, self).__init__()
         layers = []
@@ -77,6 +80,9 @@ class SlimFC(nn.Module):
             initializer(linear.weight)
         if use_bias is True:
             nn.init.constant_(linear.bias, bias_init)
+        if apply_spectral_norm:
+            linear = nn.utils.spectral_norm(linear)
+
         layers.append(linear)
         # Activation function (if any; default=None (linear)).
         if isinstance(activation_fn, str):
@@ -107,7 +113,7 @@ class SkillDynamics(nn.Module):
                  variance=1):
         super().__init__()
 
-        obs_space = obs_shape
+        
         hidden_dim = args.skill_hidden_dim
         self.z_dim = args.skill_dim
         self.max_num_experts = args.skill_max_num_experts
@@ -122,38 +128,40 @@ class SkillDynamics(nn.Module):
         self._dynamics_spectral_norm = dynamics_spectral_norm
         self._dynamics_l2_reg = dynamics_l2_reg
         self.device = device
-        obs_shape = obs_space.shape
+        
 
         # Assuming obs_shape is something like (batch_size, dim1, dim2, ...)
-        self.obs_dim = int(np.prod(obs_shape[1:]))
+        self.obs_dim = obs_shape
+        
         input_dim = self.obs_dim + self.z_dim
-
+        print(f"size of observational skill dynamics input {self.obs_dim}")
         print(f'dynamics input dim: {input_dim}')
 
         self.bn_in = nn.BatchNorm1d(self.obs_dim)
         self.bn_target = nn.BatchNorm1d(self.obs_dim, affine=False)
         activation_fn = nn.ELU
 
-        hiddens = [SlimFC(input_dim,hidden_dim,activation_fn=activation_fn,
-                          initializer=lambda w: nn.init.xavier_uniform_(w,1.0)),
+        hiddens = [SlimFC(input_dim, hidden_dim, activation_fn=activation_fn,
+                          initializer=lambda w: nn.init.xavier_uniform_(w,1.0),
+                          apply_spectral_norm=self._dynamics_spectral_norm),
                     nn.LayerNorm(hidden_dim)]
 
         for _ in range(num_hiddens-1):
             hiddens.append(SlimFC(hidden_dim,hidden_dim,activation_fn=activation_fn,
-                                  initializer=lambda w: nn.init.xavier_uniform_(w,1.0)))
+                                  initializer=lambda w: nn.init.xavier_uniform_(w,1.0),
+                                  apply_spectral_norm=self._dynamics_spectral_norm))
         self.hiddens = nn.Sequential(*hiddens)
 
         self.logits = SlimFC(hidden_dim + self.z_dim, self.max_num_experts,
-                            initializer=lambda w: nn.init.xavier_uniform_(w,1.0)) # nn.Linear(hidden_dim, self.num_experts)
+                            initializer=lambda w: nn.init.xavier_uniform_(w,1.0),
+                            apply_spectral_norm=self._dynamics_spectral_norm) # nn.Linear(hidden_dim, self.num_experts)
         
         self.means = SlimFC(hidden_dim + self.z_dim, self.max_num_experts * self.obs_dim,
-                            initializer=lambda w: nn.init.xavier_uniform_(w,1.0)) # nn.Linear(hidden_dim, self.num_experts * self.obs_dim)
+                            initializer=lambda w: nn.init.xavier_uniform_(w,1.0),
+                            apply_spectral_norm=self._dynamics_spectral_norm) # nn.Linear(hidden_dim, self.num_experts * self.obs_dim)
         # print(self.hiddens._modules)
         # print(self.hiddens._modules['0']._model._modules['0'])
-        self.hiddens._modules['0']._model._modules['0'] = nn.utils.spectral_norm(self.hiddens._modules['0']._model._modules['0'])
-        self.hiddens._modules['1']._model._modules['0'] = nn.utils.spectral_norm(self.hiddens._modules['1']._model._modules['0'])
-        self.logits._model._modules['0'] = nn.utils.spectral_norm(self.logits._model._modules['0'])
-        self.means._model._modules['0'] = nn.utils.spectral_norm(self.means._model._modules['0'])
+
         self.to(self.device)
         
         self._dynamics_lr = args.dynamics_lr  # Assuming dynamics learning rate is passed through 'args'
