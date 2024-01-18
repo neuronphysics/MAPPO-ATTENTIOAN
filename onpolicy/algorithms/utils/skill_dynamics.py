@@ -101,16 +101,16 @@ class SkillDynamics(nn.Module):
     def __init__(self, 
                  args, 
                  obs_shape, 
-                 num_hiddens=2, 
-                 z_range= (-1,1), 
-                 device=torch.device('cuda' if torch.cuda.is_available() else 'cpu') ,
+                 num_hiddens = 2, 
+                 z_range = (-1,1), 
+                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') ,
                  z_type = 'discrete', 
                  prior_samples = 100, 
                  dynamics_reg_hiddens = False, 
                  dynamics_orth_reg = True,
                  dynamics_l2_reg = False,
                  dynamics_spectral_norm = False,#dynamics spectral norm
-                 variance=1):
+                 variance = 1):
         super().__init__()
 
         
@@ -192,47 +192,43 @@ class SkillDynamics(nn.Module):
 
 
     def forward(self, obs, z, training=False):
+        
         # obs = batch_norm(obs)
+        # Debugging: Print shapes to verify dimensions
+        print(f"Shape of obs in skill Dynamics: {obs.shape}")  # The shape of the incoming observations
+        print("Expected input dimension for bn_in:", self.obs_dim)  # Expected dimension
+        obs = obs.squeeze(0)
+        print(f"skill size {self.z_dim} new shape of obs {obs.shape}")
         self.bn_in.train(mode=training)
         norm_obs = self.bn_in(obs)
-        inp = torch.cat([norm_obs,z], axis=-1)
+        z = torch.tensor(z, dtype=torch.float32, device=self.device)
+        inp = torch.cat([ norm_obs, z ], axis=-1)
         x = self.hiddens(inp)
-        batch_size = obs.size(0)
+        
         #https://luiarthur.github.io/TuringBnpBenchmarks/dpsbgmm
-        num_experts_probs = torch.softmax(self.logits(torch.cat([x, z], axis=-1)), dim=-1)# [batch,num_experts]
-        
-        num_experts_dist = torch.distributions.Categorical(num_experts_probs)
-        
-        sampled_num_experts = num_experts_dist.sample() + 1  # Adding 1 because index 0 corresponds to 1 expert
-        print(f"prbability of number of experts {num_experts_probs}, {sampled_num_experts}")
-        alpha = torch.distributions.Gamma(1.0, 10.0).sample([batch_size,sampled_num_experts-1])
-        v = torch.distributions.Beta(1.0, alpha).sample()
-        eta = self.stickbreak(v)
-        log_prob_stick_break = self.log_prob_beta(v, alpha)
+        eta = self.logits(torch.cat([x, z], axis=-1))# [batch,num_experts]
         means = self.means(torch.cat([x,z],axis=-1))
         means = means.reshape(obs.shape[0], self.max_num_experts, self.obs_dim)
-        return eta, means, log_prob_stick_break
+        return eta, means
 
     def get_distribution(self, obs, z, training=False):
-        eta, means, log_prob_stick_break  = self.forward(obs,z,training)
+        print(f"latent in skill dynamics :{z} and observation {obs}")
+        eta, means = self.forward(obs,z,training)
+        eta = torch.softmax(eta, dim=-1) # Apply softmax to get probabilities
         diags = torch.ones_like(means) * self.variance # (num_components, obs_size)
         mix = D.Categorical(eta) 
         comp = D.Independent(D.Normal(means, diags),1)
-        return D.MixtureSameFamily(mix, comp), log_prob_stick_break 
+        gmm = D.MixtureSameFamily(mix, comp)
+        print(f"mixture skills {gmm}")
+        return gmm
     
-    def log_prob_beta(self, v, alpha):
-        """
-        Compute the log probability of 'v' under the Beta distribution parameterized by 'alpha'.
-        """
-        beta_dist = torch.distributions.Beta(torch.tensor(1.0), alpha)
-        log_prob = beta_dist.log_prob(v)
-        return log_prob.sum(dim=-1)  
     
     def get_log_prob(self, obs, z, next_obs, training=False):
-        gmm, log_prob_stick_break  = self.get_distribution(obs,z,training)
+        gmm = self.get_distribution(obs,z,training)
         self.bn_target.train(mode=training)
         norm_next_obs = self.bn_target(next_obs)
-        return gmm.log_prob(norm_next_obs), log_prob_stick_break
+        return gmm.log_prob(norm_next_obs)
+    
 
     def _calculate_intrinsic_rewards(self, obs, z, next_obs, weights=None):
         num_reps = self.num_reps if self.z_type=='cont' else self.z_dim
@@ -248,27 +244,28 @@ class SkillDynamics(nn.Module):
         #implement https://github.com/google-research/dads/blob/abc37f532c26658e41ae309b646e8963bd7a8676/unsupervised_skill_learning/skill_discriminator.py#L108C1-L114C60
         alt_skill = torch.from_numpy(alt_skill)
 
-        log_prob, log_prob_stick_breaking = self.get_log_prob(obs,z,next_obs,training=False) # [Batch_size]
+        log_prob = self.get_log_prob(obs,z,next_obs,training=False) # [Batch_size]
         log_prob = log_prob.reshape(obs.shape[0],1)
-        alt_log_prob, alt_log_prob_stick_breaking = self.get_log_prob(alt_obs,alt_skill,alt_next_obs,training=False) # [Batch_size*num_reps]
+        alt_log_prob = self.get_log_prob(alt_obs,alt_skill,alt_next_obs,training=False) # [Batch_size*num_reps]
         # alt_log_prob = torch.cat(torch.split(alt_log_prob, num_reps,dim=0),dim=0) # [Batch_size, num_reps]
         alt_log_prob = alt_log_prob.reshape(obs.shape[0],num_reps) # [Batch_size, num_reps]
         # print(log_prob.shape)
         # print(alt_log_prob.shape)
         if weights is not None:
-           diff = (alt_log_prob - log_prob)*weights
+           diff =(alt_log_prob - log_prob)*weights
         else:
            diff = (alt_log_prob - log_prob)
+           
 
         reward = np.log(num_reps+1) - np.log(1 + np.exp( torch.clamp(
                 diff, -50, 50)).sum(axis=-1))
         # print(reward.shape)
-        return reward, {'log_prob':log_prob,'alt_log_prob':alt_log_prob,'log_prob_stick_breaking':log_prob_stick_breaking, 'alt_log_prob_stick_breaking':alt_log_prob_stick_breaking, 'num_higher_prob':((-diff)>=0).sum().item()}
+        return reward, {'log_prob':log_prob,'alt_log_prob':alt_log_prob, 'num_higher_prob':((-diff)>=0).sum().item()}
     
     def compute_loss(self, next_obs, obs, z):
         next_dynamics_obs = next_obs - obs
-        log_prob, log_prob_stick_break = self.get_log_prob(obs, z, next_dynamics_obs,training=True)
-        dynamics_loss = -torch.mean(log_prob + log_prob_stick_break)
+        log_prob = self.get_log_prob(obs, z, next_dynamics_obs,training=True)
+        dynamics_loss = -torch.mean(log_prob )
         orth_loss = self.orthogonal_regularization()
         l2_loss = self.l2_regularization()
         if self._dynamics_orth_reg:

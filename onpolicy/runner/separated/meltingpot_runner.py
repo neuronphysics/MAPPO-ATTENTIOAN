@@ -160,10 +160,11 @@ class MeltingpotRunner(Runner):
                                                             self.buffer[agent_id].rnn_states_critic[step],
                                                             self.buffer[agent_id].skills[step],
                                                             self.buffer[agent_id].masks[step])
-            intrinsic_reward = self.trainer[agent_id].policy_calculate_intrinsic_rewards(self.buffer[agent_id].obs[step], 
-                                                                                         skills_dynamics,
-                                                                                         self.buffer[agent_id].next_obs[step])
+            intrinsic_reward = self.trainer[agent_id].policy.actor.dynamics._calculate_intrinsic_rewards(self.buffer[agent_id].obs[step], 
+                                                                                                        skills_dynamics,
+                                                                                                        self.buffer[agent_id].next_obs[step])
             # [agents, envs, dim]
+            print(f"intrinsic reward {intrinsic_reward}")
             #value: torch.tensor, action: torch.tensor, action_log_prob :torch.tensor, rnn_states_actor: tuple(torch.tensor, torch.tensor), rnn_state_critic: tuple(torch.tensor, torch.tensor)
             
             values.append(_t2n(value))
