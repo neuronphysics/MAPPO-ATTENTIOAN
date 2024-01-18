@@ -183,7 +183,7 @@ class R_MAPPO():
 
         self.policy.critic_optimizer.step()
 
-        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, skill_dynamics_loss
+        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, skill_dynamics_loss, skill_discriminator_loss
 
     def train(self, buffer, update_actor=True):
         """
@@ -213,6 +213,7 @@ class R_MAPPO():
         train_info['critic_grad_norm'] = 0
         train_info['ratio'] = 0
         train_info['skill_loss'] = 0 ##new
+        train_info['skill_discriminator_loss'] = 0 ##new
 
         for _ in range(self.ppo_epoch):
             if self._use_recurrent_policy:
@@ -224,7 +225,7 @@ class R_MAPPO():
 
             for sample in data_generator:
 
-                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, dynamics_loss \
+                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, dynamics_loss, skill_discriminator_loss \
                     = self.ppo_update(sample, update_actor)
 
                 train_info['value_loss'] += value_loss.item()
@@ -234,6 +235,7 @@ class R_MAPPO():
                 train_info['critic_grad_norm'] += critic_grad_norm
                 train_info['ratio'] += imp_weights.mean()
                 train_info['skill_loss'] += dynamics_loss.mean() ##new
+                train_info['skill_discriminator_loss'] += skill_discriminator_loss.mean() ##new
 
         num_updates = self.ppo_epoch * self.num_mini_batch
 
