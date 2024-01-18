@@ -4,7 +4,7 @@ from torch.distributions import Beta
 import numpy as np
 import torch.distributions as D
 import abc
-
+from onpolicy.utils.util import get_shape_from_obs_space
 from typing import Any, Dict, List, Tuple, Union, Optional
 TensorType = Any
 
@@ -114,7 +114,7 @@ class SkillDynamics(nn.Module):
         super().__init__()
 
         
-        hidden_dim = args.skill_hidden_dim
+        
         self.z_dim = args.skill_dim
         self.max_num_experts = args.skill_max_num_experts
         num_hiddens = num_hiddens
@@ -131,7 +131,7 @@ class SkillDynamics(nn.Module):
         
 
         # Assuming obs_shape is something like (batch_size, dim1, dim2, ...)
-        self.obs_dim = obs_shape
+        self.obs_dim = reduce(lambda x, y: x * y, obs_shape[0:])
         
         input_dim = self.obs_dim + self.z_dim
         print(f"size of observational skill dynamics input {self.obs_dim}")
@@ -202,12 +202,12 @@ class SkillDynamics(nn.Module):
         self.bn_in.train(mode=training)
         norm_obs = self.bn_in(obs)
         z = torch.tensor(z, dtype=torch.float32, device=self.device)
-        inp = torch.cat([ norm_obs, z ], axis=-1)
+        inp = torch.cat([ norm_obs, z ], dim=-1)
         x = self.hiddens(inp)
         
         #https://luiarthur.github.io/TuringBnpBenchmarks/dpsbgmm
-        eta = self.logits(torch.cat([x, z], axis=-1))# [batch,num_experts]
-        means = self.means(torch.cat([x,z],axis=-1))
+        eta = self.logits(torch.cat([x, z], dim=-1))# [batch,num_experts]
+        means = self.means(torch.cat([x,z], dim=-1))
         means = means.reshape(obs.shape[0], self.max_num_experts, self.obs_dim)
         return eta, means
 

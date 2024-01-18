@@ -92,7 +92,7 @@ class R_Actor(nn.Module):
                print("We are using LSTM...") 
                self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
         
-        self.dynamics = SkillDynamics(args, self.hidden_size)
+        self.dynamics = SkillDynamics(args, self._obs_shape)
         self.act = ACTLayer(action_space, 2* self.hidden_size , self._use_orthogonal, self._gain)
 
         self.to(device)
@@ -136,7 +136,7 @@ class R_Actor(nn.Module):
                print(f"actor features shape after normal RNN in an actor network (lstm).... {actor_features.shape} {rnn_states.shape}")
                rnn_states =rnn_states.permute(1,0,2)
         print("actor_features type:", type(actor_features), "shape:", actor_features.shape)
-        skills = self.dynamics.get_distribution(rnn_states, skills).sample()
+        skills = self.dynamics.get_distribution(obs, skills).sample()
         print("skills type:", type(skills), "shape:", skills.shape if isinstance(skills, torch.Tensor) else skills)
         actor_features =torch.cat([actor_features, skills], dim=1)# combine skills and actor features 
         actions, action_log_probs = self.act(actor_features, available_actions, deterministic)
