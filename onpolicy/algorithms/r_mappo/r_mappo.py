@@ -138,7 +138,7 @@ class R_MAPPO():
         policy_loss = policy_action_loss
 
         self.policy.actor_optimizer.zero_grad()
-        self.policy.dynamics.dynamics_opt.zero_grad()
+        
 
         if update_actor:
             (policy_loss - dist_entropy * self.entropy_coef).backward()
@@ -149,11 +149,23 @@ class R_MAPPO():
             actor_grad_norm = get_gard_norm(self.policy.actor.parameters())
         ### New 
         skill_dynamics_loss = []
+        skill_discriminator_loss = []
         for _ in range(self._num_training_skill):
+            self.policy.dynamics.dynamics_opt.zero_grad()
+            self.policy.skill_discriminator.discriminator_opt.zero_grad()
             dynamics_loss = self.policy.dynamics.compute_loss(next_obs_batch, obs_batch, skills_batch)
+            discriminator_loss = self.policy.skill_discriminator.compute_loss(obs_batch, skills_batch)
             skill_dynamics_loss.append(skill_dynamics_loss)
+            skill_discriminator_loss.append(discriminator_loss)
+
             dynamics_loss.backward()
             self.policy.dynamics.dynamics_opt.step()
+
+            # Optimize skill discriminator
+            
+            discriminator_loss.backward()
+            self.policy.skill_discriminator.discriminator_opt.step()
+            
         ##new
         self.policy.actor_optimizer.step()
 

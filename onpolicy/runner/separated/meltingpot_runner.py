@@ -158,7 +158,6 @@ class MeltingpotRunner(Runner):
                                                             self.buffer[agent_id].obs[step],
                                                             self.buffer[agent_id].rnn_states[step],
                                                             self.buffer[agent_id].rnn_states_critic[step],
-                                                            self.buffer[agent_id].skills[step],
                                                             self.buffer[agent_id].masks[step])
             intrinsic_reward = self.trainer[agent_id].policy.actor.dynamics._calculate_intrinsic_rewards(self.buffer[agent_id].obs[step], 
                                                                                                         skills_dynamics,

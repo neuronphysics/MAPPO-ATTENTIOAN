@@ -302,5 +302,6 @@ def get_config():
     parser.add_argument("--skill_max_num_experts", type = int, default=10, help="specify the number of experts in the skill dynamics network")
     parser.add_argument("--dynamics_lr", type = int, default=3e-4, help ="Skill dynamics learning rate.")
     parser.add_argument("--skill_dim", type =int, default=10, help="skill dimension")
+    parser.add_argument("--skill_discriminator_lr", type = int, default=3e-4, help ="Skill dynamics discriminator's learning rate.")
     parser.add_argument("--num_training_skill_dynamics", type = int , default=5, help="skill dynamics training steps")
     return parser

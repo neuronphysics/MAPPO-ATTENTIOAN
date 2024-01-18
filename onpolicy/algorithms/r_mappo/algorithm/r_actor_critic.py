@@ -7,10 +7,10 @@ from onpolicy.algorithms.utils.mlp import MLPBase
 from onpolicy.algorithms.utils.rnn import RNNLayer
 from onpolicy.algorithms.utils.act import ACTLayer
 from onpolicy.algorithms.utils.popart import PopArt
-from onpolicy.algorithms.utils.skill_dynamics import SkillDynamics
+from onpolicy.algorithms.utils.skill_dynamics import SkillDynamics, SkillDiscriminator
 from onpolicy.utils.util import get_shape_from_obs_space
 from absl import logging
-
+from functools import reduce
 class R_Actor(nn.Module):
     """
     Actor network class for MAPPO. Outputs actions given observations.
@@ -92,13 +92,14 @@ class R_Actor(nn.Module):
                print("We are using LSTM...") 
                self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
         
-        self.dynamics = SkillDynamics(args, self._obs_shape)
-        self.act = ACTLayer(action_space, 2* self.hidden_size , self._use_orthogonal, self._gain)
+        self.dynamics = SkillDynamics(args, self._obs_shape, self.hidden_size)
+        self.skill_discriminator = SkillDiscriminator(args, self._obs_shape, self.hidden_size)
+        self.act = ACTLayer(action_space, reduce(lambda x, y: x * y, obs_shape[0:])+ self.hidden_size , self._use_orthogonal, self._gain)
 
         self.to(device)
         self.algo = args.algorithm_name
 
-    def forward(self, obs, rnn_states, skills, masks, available_actions=None, deterministic=False):
+    def forward(self, obs, rnn_states, masks, available_actions=None, deterministic=False):
         """
         Compute actions from the given inputs.
         :param obs: (np.ndarray / torch.Tensor) observation inputs into network.
@@ -136,7 +137,7 @@ class R_Actor(nn.Module):
                print(f"actor features shape after normal RNN in an actor network (lstm).... {actor_features.shape} {rnn_states.shape}")
                rnn_states =rnn_states.permute(1,0,2)
         print("actor_features type:", type(actor_features), "shape:", actor_features.shape)
-        skills = self.dynamics.get_distribution(obs, skills).sample()
+        skills = self.skill_discriminator.get_distribution(obs).sample()
         print("skills type:", type(skills), "shape:", skills.shape if isinstance(skills, torch.Tensor) else skills)
         actor_features =torch.cat([actor_features, skills], dim=1)# combine skills and actor features 
         actions, action_log_probs = self.act(actor_features, available_actions, deterministic)

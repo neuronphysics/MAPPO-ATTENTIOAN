@@ -3,8 +3,10 @@ import torch.nn as nn
 from torch.distributions import Beta
 import numpy as np
 import torch.distributions as D
+import torch.nn.functional as F
 import abc
-from onpolicy.utils.util import get_shape_from_obs_space
+from functools import reduce
+from onpolicy.algorithms.utils.cnn import Flatten
 from typing import Any, Dict, List, Tuple, Union, Optional
 TensorType = Any
 
@@ -101,6 +103,7 @@ class SkillDynamics(nn.Module):
     def __init__(self, 
                  args, 
                  obs_shape, 
+                 hidden_dim,
                  num_hiddens = 2, 
                  z_range = (-1,1), 
                  device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') ,
@@ -128,7 +131,7 @@ class SkillDynamics(nn.Module):
         self._dynamics_spectral_norm = dynamics_spectral_norm
         self._dynamics_l2_reg = dynamics_l2_reg
         self.device = device
-        
+        self.flat_tool = nn.Flatten()
 
         # Assuming obs_shape is something like (batch_size, dim1, dim2, ...)
         self.obs_dim = reduce(lambda x, y: x * y, obs_shape[0:])
@@ -197,7 +200,8 @@ class SkillDynamics(nn.Module):
         # Debugging: Print shapes to verify dimensions
         print(f"Shape of obs in skill Dynamics: {obs.shape}")  # The shape of the incoming observations
         print("Expected input dimension for bn_in:", self.obs_dim)  # Expected dimension
-        obs = obs.squeeze(0)
+        
+        obs = self.flat_tool(obs)
         print(f"skill size {self.z_dim} new shape of obs {obs.shape}")
         self.bn_in.train(mode=training)
         norm_obs = self.bn_in(obs)
@@ -273,3 +277,70 @@ class SkillDynamics(nn.Module):
         if self._dynamics_l2_reg and not self._dynamics_spectral_norm:
             dynamics_loss += l2_loss
         return dynamics_loss
+    
+
+
+class SkillDiscriminator(nn.Module):
+    """Skill Discriminator model in PyTorch, compatible with the provided SkillDynamics class"""
+
+    def __init__(self, 
+                 args, 
+                 obs_shape, 
+                 hidden_dim, 
+                 skill_dim, 
+                 num_hiddens=2,
+                 device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+                 discriminator_spectral_norm=False):
+        super(SkillDiscriminator, self).__init__()
+        self.obs_dim = obs_shape[0]  # Assuming obs_shape is something like (dim1, dim2, ...)
+        self.skill_dim = skill_dim
+        self.device = device
+        self.flat_tool = nn.Flatten()
+        
+        input_dim = self.obs_dim
+        self.bn_in = nn.BatchNorm1d(self.obs_dim)
+        activation_fn = nn.ELU
+
+        hiddens = [SlimFC(input_dim, hidden_dim, activation_fn=activation_fn,
+                          initializer=lambda w: nn.init.xavier_uniform_(w,1.0),
+                          apply_spectral_norm=discriminator_spectral_norm),
+                   nn.LayerNorm(hidden_dim)]
+
+        for _ in range(num_hiddens-1):
+            hiddens.append(SlimFC(hidden_dim,hidden_dim,activation_fn=activation_fn,
+                                  initializer=lambda w: nn.init.xavier_uniform_(w,1.0),
+                                  apply_spectral_norm=discriminator_spectral_norm))
+        self.hiddens = nn.Sequential(*hiddens)
+
+        self.logits = SlimFC(hidden_dim, skill_dim,
+                             initializer=lambda w: nn.init.xavier_uniform_(w,1.0),
+                             apply_spectral_norm=discriminator_spectral_norm)
+        
+        self.to(self.device)
+        
+        self._discriminator_lr = args.skill_discriminator_lr  # Assuming discriminator learning rate is passed through 'args'
+        self.discriminator_opt = torch.optim.Adam(self.parameters(), lr=self._discriminator_lr, eps=args.opti_eps, weight_decay=args.weight_decay)
+
+    def forward(self, obs, training=False):
+        obs = self.flat_tool(obs)
+        self.bn_in.train(mode=training)
+        norm_obs = self.bn_in(obs)
+        x = self.hiddens(norm_obs)
+        logits = self.logits(x)
+        return logits
+
+    def get_distribution(self, obs, training=False):
+        logits = self.forward(obs, training)
+        probs = F.softmax(logits, dim=-1)
+        dist = D.Categorical(probs)
+        return dist
+
+    def get_log_prob(self, obs, z, training=False):
+        dist = self.get_distribution(obs, training)
+        log_prob = dist.log_prob(z)
+        return log_prob
+
+    def compute_loss(self, obs, z):
+        log_prob = self.get_log_prob(obs, z, training=True)
+        loss = -torch.mean(log_prob)
+        return loss
