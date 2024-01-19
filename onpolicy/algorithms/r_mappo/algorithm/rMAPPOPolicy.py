@@ -14,7 +14,8 @@ class R_MAPPOPolicy:
     :param device: (torch.device) specifies the device to run on (cpu/gpu).
     """
 
-    def __init__(self, args, obs_space, cent_obs_space, act_space, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+    def __init__(self, args, obs_space, cent_obs_space, act_space,
+                 device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         self.device = device
         self.lr = args.lr
         self.critic_lr = args.critic_lr
@@ -27,7 +28,7 @@ class R_MAPPOPolicy:
 
         self.actor = R_Actor(args, self.obs_space, self.act_space, self.device)
         self.critic = R_Critic(args, self.share_obs_space, self.device)
-        
+
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
                                                 lr=self.lr, eps=self.opti_eps,
                                                 weight_decay=self.weight_decay)
@@ -126,7 +127,7 @@ class R_MAPPOPolicy:
         """
         actions, _, rnn_states_actor = self.actor(obs, rnn_states_actor, masks, available_actions, deterministic)
         return actions, rnn_states_actor
-    
+
     def compute_intrinsic_reward(self, obs, actions, next_obs):
         # Compute intrinsic reward using skill dynamics
         intrinsic_reward = self.skill_dynamics.compute_reward(obs, actions, next_obs)
