@@ -171,7 +171,7 @@ class SkillDynamics(nn.Module):
 
     def orthogonal_regularization(self):
         reg = 1e-4
-        orth_loss = torch.zeros(1)
+        orth_loss = torch.zeros(1).to(self.device)
         layers = [self.logits, self.means]
         if self._dynamics_reg_hiddens:
             layers.append(self.hiddens)
@@ -180,13 +180,13 @@ class SkillDynamics(nn.Module):
                 if 'bias' not in name:
                     param_flat = param.view(param.shape[0], -1)
                     sym = torch.mm(param_flat, torch.t(param_flat))
-                    sym -= torch.eye(param_flat.shape[0])
+                    sym -= torch.eye(param_flat.shape[0], device=self.device)
                     orth_loss = orth_loss + (reg * sym.abs().sum())
         return torch.sum(orth_loss)
 
     def l2_regularization(self):
         reg = 1e-4
-        l2_loss = torch.zeros(1)
+        l2_loss = torch.zeros(1).to(self.device)
         for name, param in self.hiddens.named_parameters():
             if 'bias' not in name:
                 l2_loss = l2_loss + (0.5 * reg * torch.sum(torch.pow(param, 2)))
@@ -196,13 +196,10 @@ class SkillDynamics(nn.Module):
 
         # obs = batch_norm(obs)
         # Debugging: Print shapes to verify dimensions
-        print(f"Shape of obs in skill Dynamics: {obs.shape}")  # The shape of the incoming observations
-        print("Expected input dimension for bn_in:", self.obs_dim)  # Expected dimension
         if isinstance(obs, np.ndarray):
             obs = torch.from_numpy(obs).to(self.device)
 
         obs = self.flat_tool(obs)
-        print(f"skill size {self.z_dim} new shape of obs {obs.shape}")
         self.bn_in.train(mode=training)
         norm_obs = self.bn_in(obs)
         z = torch.tensor(z, dtype=torch.float32, device=self.device)
@@ -216,14 +213,12 @@ class SkillDynamics(nn.Module):
         return eta, means
 
     def get_distribution(self, obs, z, training=False):
-        print(f"latent in skill dynamics :{z} and observation {obs}")
         eta, means = self.forward(obs, z, training)
         eta = torch.softmax(eta, dim=-1)  # Apply softmax to get probabilities
         diags = torch.ones_like(means) * self.variance  # (num_components, obs_size)
         mix = D.Categorical(eta)
         comp = D.Independent(D.Normal(means, diags), 1)
         gmm = D.MixtureSameFamily(mix, comp)
-        print(f"mixture skills {gmm}")
         return gmm
 
     def get_log_prob(self, obs, z, next_obs, training=False):
@@ -332,6 +327,8 @@ class SkillDiscriminator(nn.Module):
                                                   weight_decay=args.weight_decay)
 
     def forward(self, obs, training=False):
+        if isinstance(obs, np.ndarray):
+            obs = torch.from_numpy(obs).to(self.device)
         obs = self.flat_tool(obs)
         self.bn_in.train(mode=training)
         norm_obs = self.bn_in(obs)
@@ -347,6 +344,8 @@ class SkillDiscriminator(nn.Module):
 
     def get_log_prob(self, obs, z, training=False):
         dist = self.get_distribution(obs, training)
+        if isinstance(z, np.ndarray):
+            z = torch.from_numpy(z).to(self.device)
         log_prob = dist.log_prob(z)
         return log_prob
 

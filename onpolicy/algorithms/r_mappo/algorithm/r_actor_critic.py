@@ -40,7 +40,7 @@ class R_Actor(nn.Module):
         obs_shape = get_shape_from_obs_space(obs_space)
 
         ##Zahra added
-        self.use_attention = False
+        self.use_attention = args.use_attention
         # self.use_attention = args.use_attention
         self._attention_module = args.attention_module
         print(f"value of use attention is {self.use_attention} ")
@@ -180,10 +180,12 @@ class R_Actor(nn.Module):
             active_masks = check(active_masks).to(**self.tpdv)
 
         actor_features = self.base(obs)
+        skills = self.skill_discriminator.get_distribution(obs).sample()
 
-        if self._use_naive_recurrent_policy or self._use_recurrent_policy:
+        if self._use_naive_recurrent_policy or self._use_recurrent_policy or self.use_attention:
             actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
 
+        actor_features = torch.cat([actor_features, skills], dim=1)
         if self.algo == "hatrpo":
             action_log_probs, dist_entropy, action_mu, action_std, all_probs = self.act.evaluate_actions_trpo(
                 actor_features,
@@ -231,10 +233,7 @@ class R_Critic(nn.Module):
         self._attention_module = args.attention_module
 
         self._obs_shape = cent_obs_shape
-        print(f"critic network observation shape {cent_obs_shape} {len(self._obs_shape)}")
         if self.use_attention and len(self._obs_shape) >= 3:
-
-            print(f"value of use attention in critic network is {self.use_attention} ")
             if self._obs_shape[0] == 3:
                 input_channel = cent_obs_shape[0]
                 input_width = cent_obs_shape[1]
@@ -243,9 +242,7 @@ class R_Critic(nn.Module):
                 input_channel = cent_obs_shape[2]
                 input_width = cent_obs_shape[0]
                 input_height = cent_obs_shape[1]
-                # making parametrs of encoder for CNN compatible with different image sizes
-            print(
-                f"input channel and input image width in critic network c:{input_channel}, w: {input_width}, h: {input_height} observation: {cent_obs_shape}")
+            # making parametrs of encoder for CNN compatible with different image sizes
             kernel, stride, padding = calculate_conv_params((input_width, input_height, input_channel))
 
             self.base = Encoder(input_channel, input_height, input_width, self.hidden_size, device, max_filters=256,
@@ -256,18 +253,14 @@ class R_Critic(nn.Module):
                                k=args.rim_topk, rnn_cell='GRU', n_layers=1, bidirectional=False, batch_first=True)
 
             elif self._attention_module == "SCOFF":
-                print(
-                    f"we are using SCOFF attention module in critic network.... {cent_obs_shape} {len(self._obs_shape)}")
                 self.rnn = SCOFF(device, self.hidden_size, self.hidden_size, num_units=args.scoff_num_units,
                                  k=args.scoff_topk, num_templates=2, rnn_cell='GRU', n_layers=1, bidirectional=False,
                                  batch_first=False, version=self._use_version_scoff)
         elif not self.use_attention:
-            print(f"value of use attention in critic network is {self.use_attention} ")
             base = CNNBase if len(cent_obs_shape) >= 3 else MLPBase
             self.base = base(args, cent_obs_shape)
 
             if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-                print("We are using LSTM...")
                 self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
 
         def init_(m):
@@ -294,22 +287,16 @@ class R_Critic(nn.Module):
         rnn_states = check(rnn_states).to(**self.tpdv)
         masks = check(masks).to(**self.tpdv)
         if self.use_attention and len(self._obs_shape) == 3:
-            print(f"critic features shape of shared observation before cnn.... {cent_obs.shape} {masks.shape}")
             critic_features = self.base(cent_obs)
-            print(f"critic features shape before rnn.... {critic_features.shape} {rnn_states.shape}")
             critic_features, rnn_states = self.rnn(critic_features, rnn_states)
-            print(
-                f"critic features shape after rnn using attention.... {critic_features.shape} {rnn_states[0].shape}")  # torch.Size([1, rollout,hidden_size]) torch.Size([1, rollout, hidden_size])
             if self._attention_module == "RIM":
                 rnn_states = tuple(t.permute(1, 0, 2) for t in rnn_states)
         else:
 
             critic_features = self.base(cent_obs)
-            print(f"critic features shape before rnn using (normal rnn).... {critic_features.shape} {rnn_states.shape}")
+
             if self._use_naive_recurrent_policy or self._use_recurrent_policy:
                 critic_features, rnn_states = self.rnn(critic_features, rnn_states, masks)
-                print(
-                    f"critic features shape after rnn using (normal rnn).... {critic_features.shape} {rnn_states.shape}")  # torch.Size([rollout,hidden_size]) torch.Size([rollout, 1, hidden_size])
                 critic_features = critic_features.unsqueeze(0)
                 rnn_states = rnn_states.permute(1, 0, 2)
         values = self.v_out(critic_features)

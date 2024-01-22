@@ -5,6 +5,7 @@ from onpolicy.utils.util import get_gard_norm, huber_loss, mse_loss
 from onpolicy.utils.valuenorm import ValueNorm
 from onpolicy.algorithms.utils.util import check
 
+
 class R_MAPPO():
     """
     Trainer class for MAPPO to update policies.
@@ -12,6 +13,7 @@ class R_MAPPO():
     :param policy: (R_MAPPO_Policy) policy to update.
     :param device: (torch.device) specifies the device to run on (cpu/gpu).
     """
+
     def __init__(self,
                  args,
                  policy,
@@ -27,7 +29,7 @@ class R_MAPPO():
         self.data_chunk_length = args.data_chunk_length
         self.value_loss_coef = args.value_loss_coef
         self.entropy_coef = args.entropy_coef
-        self.max_grad_norm = args.max_grad_norm       
+        self.max_grad_norm = args.max_grad_norm
         self.huber_delta = args.huber_delta
 
         self._use_recurrent_policy = args.use_recurrent_policy
@@ -41,9 +43,10 @@ class R_MAPPO():
         self._use_policy_active_masks = args.use_policy_active_masks
         ###skill learing ####
         self._num_training_skill = args.num_training_skill_dynamics
-        
-        assert (self._use_popart and self._use_valuenorm) == False, ("self._use_popart and self._use_valuenorm can not be set True simultaneously")
-        
+
+        assert (self._use_popart and self._use_valuenorm) == False, (
+            "self._use_popart and self._use_valuenorm can not be set True simultaneously")
+
         if self._use_popart:
             self.value_normalizer = self.policy.critic.v_out
         elif self._use_valuenorm:
@@ -62,7 +65,7 @@ class R_MAPPO():
         :return value_loss: (torch.Tensor) value function loss.
         """
         value_pred_clipped = value_preds_batch + (values - value_preds_batch).clamp(-self.clip_param,
-                                                                                        self.clip_param)
+                                                                                    self.clip_param)
         if self._use_popart or self._use_valuenorm:
             self.value_normalizer.update(return_batch)
             error_clipped = self.value_normalizer.normalize(return_batch) - value_pred_clipped
@@ -103,9 +106,9 @@ class R_MAPPO():
         :return actor_grad_norm: (torch.Tensor) gradient norm from actor update.
         :return imp_weights: (torch.Tensor) importance sampling weights.
         """
-        share_obs_batch, obs_batch, next_obs_batch, skills_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \
-        value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
-        adv_targ, available_actions_batch = sample
+        share_obs_batch, obs_batch, next_obs_batch, skills_batch, rnn_states_batch, rnn_states_critic_batch, \
+            actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, \
+            old_action_log_probs_batch, adv_targ, available_actions_batch = sample
 
         old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
         adv_targ = check(adv_targ).to(**self.tpdv)
@@ -115,11 +118,11 @@ class R_MAPPO():
 
         # Reshape to do in a single forward pass for all steps
         values, action_log_probs, dist_entropy = self.policy.evaluate_actions(share_obs_batch,
-                                                                              obs_batch, 
-                                                                              rnn_states_batch, 
-                                                                              rnn_states_critic_batch, 
-                                                                              actions_batch, 
-                                                                              masks_batch, 
+                                                                              obs_batch,
+                                                                              rnn_states_batch,
+                                                                              rnn_states_critic_batch,
+                                                                              actions_batch,
+                                                                              masks_batch,
                                                                               available_actions_batch,
                                                                               active_masks_batch)
         # actor update
@@ -138,7 +141,6 @@ class R_MAPPO():
         policy_loss = policy_action_loss
 
         self.policy.actor_optimizer.zero_grad()
-        
 
         if update_actor:
             (policy_loss - dist_entropy * self.entropy_coef).backward()
@@ -151,21 +153,21 @@ class R_MAPPO():
         skill_dynamics_loss = []
         skill_discriminator_loss = []
         for _ in range(self._num_training_skill):
-            self.policy.dynamics.dynamics_opt.zero_grad()
-            self.policy.skill_discriminator.discriminator_opt.zero_grad()
-            dynamics_loss = self.policy.dynamics.compute_loss(next_obs_batch, obs_batch, skills_batch)
-            discriminator_loss = self.policy.skill_discriminator.compute_loss(obs_batch, skills_batch)
-            skill_dynamics_loss.append(skill_dynamics_loss)
+            self.policy.actor.dynamics.dynamics_opt.zero_grad()
+            self.policy.actor.skill_discriminator.discriminator_opt.zero_grad()
+            dynamics_loss = self.policy.actor.dynamics.compute_loss(next_obs_batch, obs_batch, skills_batch)
+            discriminator_loss = self.policy.actor.skill_discriminator.compute_loss(obs_batch, skills_batch)
+            skill_dynamics_loss.append(dynamics_loss)
             skill_discriminator_loss.append(discriminator_loss)
 
             dynamics_loss.backward()
-            self.policy.dynamics.dynamics_opt.step()
+            self.policy.actor.dynamics.dynamics_opt.step()
 
             # Optimize skill discriminator
-            
+
             discriminator_loss.backward()
-            self.policy.skill_discriminator.discriminator_opt.step()
-            
+            self.policy.actor.skill_discriminator.discriminator_opt.step()
+
         ##new
         self.policy.actor_optimizer.step()
 
@@ -202,7 +204,6 @@ class R_MAPPO():
         mean_advantages = np.nanmean(advantages_copy)
         std_advantages = np.nanstd(advantages_copy)
         advantages = (advantages - mean_advantages) / (std_advantages + 1e-5)
-        
 
         train_info = {}
 
@@ -212,8 +213,8 @@ class R_MAPPO():
         train_info['actor_grad_norm'] = 0
         train_info['critic_grad_norm'] = 0
         train_info['ratio'] = 0
-        train_info['skill_loss'] = 0 ##new
-        train_info['skill_discriminator_loss'] = 0 ##new
+        train_info['skill_loss'] = 0  ##new
+        train_info['skill_discriminator_loss'] = 0  ##new
 
         for _ in range(self.ppo_epoch):
             if self._use_recurrent_policy:
@@ -224,9 +225,11 @@ class R_MAPPO():
                 data_generator = buffer.feed_forward_generator(advantages, self.num_mini_batch)
 
             for sample in data_generator:
-
                 value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, dynamics_loss, skill_discriminator_loss \
                     = self.ppo_update(sample, update_actor)
+
+                dynamics_loss = torch.tensor(dynamics_loss, device=self.device)
+                skill_discriminator_loss = torch.tensor(skill_discriminator_loss, device=self.device)
 
                 train_info['value_loss'] += value_loss.item()
                 train_info['policy_loss'] += policy_loss.item()
@@ -234,22 +237,22 @@ class R_MAPPO():
                 train_info['actor_grad_norm'] += actor_grad_norm
                 train_info['critic_grad_norm'] += critic_grad_norm
                 train_info['ratio'] += imp_weights.mean()
-                train_info['skill_loss'] += dynamics_loss.mean() ##new
-                train_info['skill_discriminator_loss'] += skill_discriminator_loss.mean() ##new
+                train_info['skill_loss'] += dynamics_loss.mean()  ##new
+                train_info['skill_discriminator_loss'] += skill_discriminator_loss.mean()  ##new
 
         num_updates = self.ppo_epoch * self.num_mini_batch
 
         for k in train_info.keys():
             train_info[k] /= num_updates
- 
+
         return train_info
 
     def prep_training(self):
         self.policy.actor.train()
         self.policy.critic.train()
-        self.policy.actor.dynamics.train() ###new 
+        self.policy.actor.dynamics.train()  ###new
 
     def prep_rollout(self):
         self.policy.actor.eval()
         self.policy.critic.eval()
-        self.policy.actor.dynamics.eval()###new
+        self.policy.actor.dynamics.eval()  ###new

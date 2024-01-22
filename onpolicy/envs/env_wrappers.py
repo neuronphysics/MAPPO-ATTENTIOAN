@@ -13,6 +13,7 @@ from multiprocessing import Process, Pipe, Queue
 import logging
 import time
 
+
 class CloudpickleWrapper(object):
     """
     Uses cloudpickle to serialize contents (otherwise multiprocessing tries to use pickle)
@@ -180,16 +181,17 @@ class VecEnvWrapper(ShareVecEnv):
     def reset_task(self):
         pass
 
-def worker(remote, parent_remote, env_fn_wrapper):
-    parent_remote.close()
+
+def worker(child_conn, parent_remote, env_fn_wrapper):
+    # parent_remote.close()
     env = None
     try:
         env = env_fn_wrapper.x()
         while True:
-            cmd, data = remote.recv()
+            cmd, data = child_conn.recv()
             if cmd == 'step':
                 ob, reward, done, info = env.step(data)
-                if isinstance(done, dict):  # Assuming you are working with multi-agent environments
+                if isinstance(done, dict):  # Assuming you are working with multi agents environments
                     all_done = all([d for done_list in done.values() for d in done_list])
                     if all_done:
                         ob = env.reset()
@@ -198,41 +200,42 @@ def worker(remote, parent_remote, env_fn_wrapper):
                 else:
                     if np.all(done):
                         ob = env.reset()
-                remote.send((ob, reward, done, info))
+                child_conn.send((ob, reward, done, info))
             elif cmd == 'reset':
                 ob = env.reset()
-                remote.send(ob)
+                child_conn.send(ob)
             elif cmd == 'render':
-                if data=='rgb_array':
+                if data == 'rgb_array':
                     fr = env.render(mode=data)
-                    remote.send(fr)
+                    child_conn.send(fr)
                 elif data == "human":
                     env.render(mode=data)
             elif cmd == 'reset_task':
                 ob = env.reset_task()
-                remote.send(ob)
+                child_conn.send(ob)
             elif cmd == 'close':
                 print("Closing worker.")
                 env.close()
-                remote.close()
+                child_conn.close()
                 break
             elif cmd == 'get_spaces':
-                remote.send((env.observation_space, env.share_observation_space, env.action_space))
+                child_conn.send((env.observation_space, env.share_observation_space, env.action_space))
             else:
                 logging.error("Unrecognized command: {}".format(cmd))
-                remote.send(('error', 'Unrecognized command'))  # Send an error message for unrecognized commands                    
+                child_conn.send(('error',
+                             'Unrecognized command'))  # Send an error message for unrecognized commands
     except KeyboardInterrupt:
         print('Worker: received KeyboardInterrupt')
     except Exception as e:
         print(f'Worker: encountered an exception {e}')
         print(traceback.format_exc())
-        remote.send(('error', str(e)))
+        child_conn.send(('error', str(e)))
     finally:
         if env:
             env.close()
-        remote.close()
+        child_conn.close()
 
-        
+
 class GuardSubprocVecEnv(ShareVecEnv):
     def __init__(self, env_fns, spaces=None):
         """
@@ -246,7 +249,7 @@ class GuardSubprocVecEnv(ShareVecEnv):
                    for (work_remote, remote, env_fn) in zip(self.work_remotes, self.remotes, env_fns)]
         for i, p in enumerate(self.ps):
             if not p.is_alive():
-               print(f"Process {i} is not alive!")
+                print(f"Process {i} is not alive!")
             p.daemon = False  # could cause zombie process
             p.start()
             print(f"Process {p.pid} started GuardSubprocVecEnv.")
@@ -260,11 +263,10 @@ class GuardSubprocVecEnv(ShareVecEnv):
                              share_observation_space, action_space)
 
     def step_async(self, actions):
-        
+
         for remote, action in zip(self.remotes, actions):
             remote.send(('step', action))
         self.waiting = True
-
 
     def step_wait(self):
         results = [remote.recv() for remote in self.remotes]
@@ -273,19 +275,16 @@ class GuardSubprocVecEnv(ShareVecEnv):
         obs, rews, dones, infos = zip(*results)
         return np.stack(obs), np.stack(rews), np.stack(dones), infos
 
-
     def reset(self):
         for remote in self.remotes:
             remote.send(('reset', None))
         obs = [remote.recv() for remote in self.remotes]
         return np.stack(obs)
 
-
     def reset_task(self):
         for remote in self.remotes:
             remote.send(('reset_task', None))
         return np.stack([remote.recv() for remote in self.remotes])
-
 
     def close(self):
         if self.closed:
@@ -308,42 +307,38 @@ class SubprocVecEnv(ShareVecEnv):
         self.waiting = False
         self.closed = False
         nenvs = len(env_fns)
-        self.remotes, self.work_remotes = zip(*[Pipe() for _ in range(nenvs)])
+        self.parents_conns, self.child_conns = zip(*[Pipe() for _ in range(nenvs)])
         print("Creating process objects...")
-        self.ps = [Process(target=worker, args=(work_remote, remote, CloudpickleWrapper(env_fn)))
-                   for (work_remote, remote, env_fn) in zip(self.work_remotes, self.remotes, env_fns)]
+        self.ps = [Process(target=worker, args=(child_conn, parent_conn, CloudpickleWrapper(env_fn)))
+                   for (child_conn, parent_conn, env_fn) in zip(self.child_conns, self.parents_conns, env_fns)]
 
         print("Process objects created.")
         for p in self.ps:
-            p.daemon = (
-                True  # if the main process crashes, we should not cause things to hang
-            )
+            # if the main process crashes, we should not cause things to hang
+            p.daemon = False
             p.start()
             print(f"Process {p.pid} started SubprocVecEnv.")
-        print("Processes started.")    
-        for remote in self.work_remotes:
-            remote.close()
+        print("Processes started.")
 
-        self.remotes[0].send(('get_spaces', None))
-        received_data = self.remotes[0].recv()
+        self.parents_conns[0].send(('get_spaces', None))
+        received_data = self.parents_conns[0].recv()
         if len(received_data) == 3:
             observation_space, share_observation_space, action_space = received_data
 
             ShareVecEnv.__init__(self, len(env_fns), observation_space, share_observation_space, action_space)
         else:
-           raise ValueError("Unexpected number of values received: {}".format(len(received_data)))
-
+            raise ValueError("Unexpected number of values received: {}".format(len(received_data)))
 
     def step_async(self, actions):
-        for remote, action in zip(self.remotes, actions):
+        for remote, action in zip(self.parents_conns, actions):
             remote.send(('step', action))
-        print("Step commands sent in SubprocVecEnv.")    
+        print("Step commands sent in SubprocVecEnv.")
         self.waiting = True
 
     def step_wait(self):
         results = []
         print("Waiting to receive step results...")
-        for i, remote in enumerate(self.remotes):
+        for i, remote in enumerate(self.parents_conns):
             # Check if process is alive
             if not self.ps[i].is_alive():
                 print(f"Error: Process {i} is not alive. Last return code: {self.ps[i].exitcode}.")
@@ -367,59 +362,57 @@ class SubprocVecEnv(ShareVecEnv):
                     break  # Exit the loop after receiving data
 
                 elapsed_time = time.time() - start_time
-                if elapsed_time >= 20.0:  # 5 seconds timeout
+                if elapsed_time >= 200000.0:  # 5 seconds timeout
                     print(f"Timeout while waiting for process {i}.")
                     break
 
-        #... possible additional checks ...
+        # ... possible additional checks ...
         self.waiting = False
 
         if not results:
             raise RuntimeError("No results were successfully processed from the worker environments.")
         else:
-           obs, rews, dones, infos = zip(*results)
-           
+            obs, rews, dones, infos = zip(*results)
+
         return np.stack(obs), np.stack(rews), np.stack(dones), infos
 
     def reset(self):
-        for remote in self.remotes:
+        for remote in self.parents_conns:
             remote.send(('reset', None))
-        obs = [remote.recv() for remote in self.remotes]
+        obs = [remote.recv() for remote in self.parents_conns]
         return np.stack(obs)
 
     def sample(self):
         self._assert_not_closed()
-        for remote in self.remotes:
+        for remote in self.parents_conns:
             remote.send(("sample", None))
-        return np.stack([remote.recv() for remote in self.remotes])
-
+        return np.stack([remote.recv() for remote in self.parents_conns])
 
     def reset_task(self):
-        for remote in self.remotes:
+        for remote in self.parents_conns:
             remote.send(('reset_task', None))
-        return np.stack([remote.recv() for remote in self.remotes])
-
+        return np.stack([remote.recv() for remote in self.parents_conns])
 
     def close(self):
         if self.closed:
             return
 
         if self.waiting:
-            for remote in self.remotes:
+            for remote in self.parents_conns:
                 remote.recv()
-        for remote in self.remotes:
+        for remote in self.parents_conns:
             remote.send(('close', None))
         for p in self.ps:
             p.join()
         self.closed = True
 
-
     def render(self, mode="rgb_array"):
-        for remote in self.remotes:
+        for remote in self.parents_conns:
             remote.send(('render', mode))
-        if mode == "rgb_array":   
-            frame = [remote.recv() for remote in self.remotes]
-            return np.stack(frame) 
+        if mode == "rgb_array":
+            frame = [remote.recv() for remote in self.parents_conns]
+            return np.stack(frame)
+
 
 def shareworker(remote, parent_remote, env_fn_wrapper):
     parent_remote.close()
@@ -598,7 +591,7 @@ class ChooseSimpleSubprocVecEnv(ShareVecEnv):
     def render(self, mode="rgb_array"):
         for remote in self.remotes:
             remote.send(('render', mode))
-        if mode == "rgb_array":   
+        if mode == "rgb_array":
             frame = [remote.recv() for remote in self.remotes]
             return np.stack(frame)
 
@@ -825,7 +818,7 @@ class DummyVecEnv(ShareVecEnv):
         for env in self.envs:
             env.close()
 
-    def render(self, mode="human", has_mode = True):
+    def render(self, mode="human", has_mode=True):
         if mode == "rgb_array":
             if has_mode:
                 return np.array([env.render(mode=mode) for env in self.envs])
@@ -836,7 +829,6 @@ class DummyVecEnv(ShareVecEnv):
                 env.render(mode=mode)
         else:
             raise NotImplementedError
-
 
 
 class ShareDummyVecEnv(ShareVecEnv):
@@ -875,7 +867,7 @@ class ShareDummyVecEnv(ShareVecEnv):
     def close(self):
         for env in self.envs:
             env.close()
-    
+
     def render(self, mode="human"):
         if mode == "rgb_array":
             return np.array([env.render(mode=mode) for env in self.envs])
@@ -924,6 +916,7 @@ class ChooseDummyVecEnv(ShareVecEnv):
         else:
             raise NotImplementedError
 
+
 class ChooseSimpleDummyVecEnv(ShareVecEnv):
     def __init__(self, env_fns):
         self.envs = [fn() for fn in env_fns]
@@ -944,7 +937,7 @@ class ChooseSimpleDummyVecEnv(ShareVecEnv):
 
     def reset(self, reset_choose):
         obs = [env.reset(choose)
-                   for (env, choose) in zip(self.envs, reset_choose)]
+               for (env, choose) in zip(self.envs, reset_choose)]
         return np.array(obs)
 
     def close(self):

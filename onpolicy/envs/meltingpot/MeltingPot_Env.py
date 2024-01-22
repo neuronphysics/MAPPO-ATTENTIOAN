@@ -207,8 +207,7 @@ class MeltingPotEnv(multi_agent_env.MultiAgentEnv):
                 'RGB': np.stack(agent_observation[agent_id]['RGB'], axis=0),
                 'WORLD.RGB': np.stack(agent_observation[agent_id]['WORLD.RGB'], axis=0)
             }
-        # print(f"observation inside step melting pot environment {observations['player_0']['RGB'].shape}, {observations['player_0']['WORLD.RGB'].shape}")
-        # (n_rollout, 11, 11, 3), (n_rollout, 30, 21, 3)
+
         info = {}
         self.num_cycles += 1
         return observations, rewards, done, info

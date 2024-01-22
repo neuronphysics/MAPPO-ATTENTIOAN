@@ -231,10 +231,12 @@ def load_test_args(args):
     # args.wandb_name = "zsheikhb"
     args.share_policy = False
     args.use_centralized_V = False
-    args.use_attention = True
-    args.num_env_steps = 10
+    args.use_attention = False
+    args.num_env_steps = 10000
     args.log_interval = 1
-    args.episode_length = 2
+    args.episode_length = 2000
+    args.data_chunk_length = 4
+    args.attention_module = 'SCOFF'
 
 
 if __name__ == "__main__":
