@@ -225,7 +225,7 @@ def load_test_args(args):
     args.substrate_name = "territory__rooms"
     args.num_agents = 9
     args.seed = 1
-    args.n_rollout_threads = 5
+    args.n_rollout_threads = 2
     args.use_wandb = False
     args.user_name = "sc_debug_test_name"
     # args.wandb_name = "zsheikhb"
@@ -234,8 +234,8 @@ def load_test_args(args):
     args.use_attention = False
     args.num_env_steps = 500000
     args.log_interval = 1
-    args.episode_length = 2000
-    args.data_chunk_length = 10
+    args.episode_length = 1000
+    args.data_chunk_length = 4
     args.attention_module = 'SCOFF'
 
 

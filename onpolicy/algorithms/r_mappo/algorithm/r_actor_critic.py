@@ -43,13 +43,9 @@ class R_Actor(nn.Module):
         self.use_attention = args.use_attention
         # self.use_attention = args.use_attention
         self._attention_module = args.attention_module
-        print(f"value of use attention is {self.use_attention} ")
-
         self._obs_shape = obs_shape
-        print(f"actor network observation shape {obs_shape} {len(self._obs_shape)}")
 
         if self.use_attention and len(self._obs_shape) >= 3:
-            print(f"value of use attention is {self.use_attention} ")
             logging.info('Using attention module %s: input width: %d', self._attention_module, obs_shape[1])
             # print(f"we are using both CNN and attention module.... {obs_shape} {len(self._obs_shape)}")
             if obs_shape[0] == 3:
@@ -61,8 +57,6 @@ class R_Actor(nn.Module):
                 input_width = obs_shape[0]
                 input_height = obs_shape[1]
                 # making parametrs of encoder for CNN compatible with different image sizes
-            print(
-                f"input channel and input image width in actor network c: {input_channel}, w: {input_width}, h: {input_height}")
             kernel, stride, padding = calculate_conv_params((input_width, input_height, input_channel))
 
             self.base = Encoder(input_channel,
@@ -88,7 +82,6 @@ class R_Actor(nn.Module):
                                  batch_first=False, version=self._use_version_scoff, num_rules=4, rule_time_steps=1)
 
         elif not self.use_attention:
-            print(f"value of use attention is {self.use_attention} ")
             base = CNNBase if len(obs_shape) >= 3 else MLPBase
             logging.info("observation space %s number of dimensions of observation space is %d", str(obs_space.shape),
                          len(obs_shape))

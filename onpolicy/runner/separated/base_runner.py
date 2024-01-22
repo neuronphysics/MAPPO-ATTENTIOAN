@@ -87,10 +87,6 @@ class Runner(object):
             from onpolicy.algorithms.r_mappo.r_mappo import R_MAPPO as TrainAlgo
             from onpolicy.algorithms.r_mappo.algorithm.rMAPPOPolicy import R_MAPPOPolicy as Policy
 
-        print("runner separated share_observation_space: ", self.envs.share_observation_space)
-        print("runner separated observation_space: ", self.envs.observation_space)
-        print("runner separated action_space: ", self.envs.action_space)
-
         self.policy = []
         for agent_id in range(self.num_agents):
             if not self.env_name == "Meltingpot":
