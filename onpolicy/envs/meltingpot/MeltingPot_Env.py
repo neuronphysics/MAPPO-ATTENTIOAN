@@ -329,7 +329,6 @@ class DownSamplingSubstrateWrapper(observables.ObservableLab2dWrapper):
         return _downsample_multi_timestep(timestep, self._scaled)
 
     def step(self, actions) -> dm_env.TimeStep:
-        print(f"step downsampled Substrate")
         timestep = super().step(actions)
 
         return _downsample_multi_timestep(timestep, self._scaled)

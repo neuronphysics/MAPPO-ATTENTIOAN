@@ -44,10 +44,12 @@ class MeltingpotRunner(Runner):
         episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
 
         for episode in range(episodes):
+            print(f'Episode {episode} start at {time.time()}')
             if self.use_linear_lr_decay:
                 for agent_id in range(self.num_agents):
                     self.trainer[agent_id].policy.lr_decay(episode, episodes)
 
+            step_time = time.time()
             for step in range(self.episode_length):
                 # Sample actions
                 values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env, skills, intrinsic_rewards = self.collect(
@@ -57,12 +59,17 @@ class MeltingpotRunner(Runner):
                 # Observe reward and next obs
                 # todo, suppose return a dict, but it got wrapped by another list, where does this list got added?
                 next_obs, rewards, dones, infos = self.envs.step(actions)
+                if not isinstance(next_obs[0], dict):
+                    next_obs = next_obs[:, 0]
+
                 # Calculate intrinsic rewards using discriminator
                 data = next_obs, obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic, skills, intrinsic_rewards
 
                 # insert data into buffer
                 self.insert(data)
                 obs = next_obs
+
+            print(f'Finished {self.episode_length} steps in {time.time() - step_time} seconds')
 
             # compute return and update network
             self.compute()
@@ -287,6 +294,8 @@ class MeltingpotRunner(Runner):
 
             share_obs = np.array(share_obs)
             agent_obs = np.array(agent_obs)
+            if len(share_obs.shape) != 5:
+                print('Wrong dim!')
             share_obs = share_obs.transpose(0, 1, 3, 2, 4)
             agent_obs = agent_obs.transpose(0, 1, 3, 2, 4)
         else:
@@ -300,10 +309,7 @@ class MeltingpotRunner(Runner):
         # Extract the boolean values for each player and convert to a boolean array
         done_new = self.extract_data(done, np.bool_)
         rewards = self.extract_data(rewards, np.float32)
-        print(f"done_new shape {done_new.shape}, rewards shape {rewards.shape}")
-
         # Create a boolean mask with the same shape as rnn_states
-
         rnn_states[done_new == True] = np.zeros(((done_new == True).sum(), self.hidden_size), dtype=np.float32)
 
         rnn_states_critic[done_new == True] = np.zeros(((done_new == True).sum(), self.hidden_size), dtype=np.float32)
@@ -313,8 +319,7 @@ class MeltingpotRunner(Runner):
 
         share_obs, agent_obs = self.process_obs(obs)
         next_share_obs, next_agent_obs = self.process_obs(next_obs)
-        print(
-            f"share_obs shape {share_obs.shape}, agent_obs shape {agent_obs.shape}, rewards shape {rewards.shape}, masks shape {masks.shape} values shape {values.shape} actions shape {actions.shape} action_log_probs shape {action_log_probs.shape} rnn_states shape {rnn_states.shape} rnn_states_critic shape {rnn_states_critic.shape}")
+
         for agent_id in range(self.num_agents):
             # For a quick fix to see if the issue is just about the share_obs reshaping, I comment out the conditional reshaping:
             # if not self.use_centralized_V:

@@ -202,7 +202,10 @@ class SkillDynamics(nn.Module):
         obs = self.flat_tool(obs)
         self.bn_in.train(mode=training)
         norm_obs = self.bn_in(obs)
-        z = torch.tensor(z, dtype=torch.float32, device=self.device)
+        if isinstance(z, np.ndarray):
+            z = torch.from_numpy(z).to(self.device)
+        else:
+            z = z.to(self.device)
         inp = torch.cat([norm_obs, z], dim=-1)
         x = self.hiddens(inp)
 

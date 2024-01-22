@@ -110,7 +110,6 @@ class ShareVecEnv(ABC):
 
         This is available for backwards compatibility.
         """
-        print("Step called in ShareVecEnv...")
         self.step_async(actions)
         return self.step_wait()
 
@@ -332,12 +331,10 @@ class SubprocVecEnv(ShareVecEnv):
     def step_async(self, actions):
         for remote, action in zip(self.parents_conns, actions):
             remote.send(('step', action))
-        print("Step commands sent in SubprocVecEnv.")
         self.waiting = True
 
     def step_wait(self):
         results = []
-        print("Waiting to receive step results...")
         for i, remote in enumerate(self.parents_conns):
             # Check if process is alive
             if not self.ps[i].is_alive():

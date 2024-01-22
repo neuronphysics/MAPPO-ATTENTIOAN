@@ -130,26 +130,18 @@ class R_Actor(nn.Module):
 
         if self.use_attention and len(self._obs_shape) >= 3:
             actor_features = self.base(obs)
-
-            print(
-                f"actor features shape.... {actor_features.shape} {rnn_states.shape}")  # torch.Size([9, 64]) torch.Size([9, 1, 64])
             actor_features, rnn_states = self.rnn(actor_features, rnn_states)
-            print(
-                f"actor features shape after normal RNN in an actor network (attention).... {actor_features[0].shape} {rnn_states[0].shape}")
             if self._attention_module == "RIM":
                 rnn_states = tuple(t.permute(1, 0, 2) for t in rnn_states)
         else:
 
             actor_features = self.base(obs)
-            print(f"actor features shape base CNN and RNN.... {actor_features.shape} {rnn_states.shape}")
             if self._use_naive_recurrent_policy or self._use_recurrent_policy:
                 actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
-                print(
-                    f"actor features shape after normal RNN in an actor network (lstm).... {actor_features.shape} {rnn_states.shape}")
                 rnn_states = rnn_states.permute(1, 0, 2)
-        print("actor_features type:", type(actor_features), "shape:", actor_features.shape)
+
         skills = self.skill_discriminator.get_distribution(obs).sample()
-        print("skills type:", type(skills), "shape:", skills.shape if isinstance(skills, torch.Tensor) else skills)
+
         actor_features = torch.cat([actor_features, skills], dim=1)  # combine skills and actor features
         actions, action_log_probs = self.act(actor_features, available_actions, deterministic)
 
