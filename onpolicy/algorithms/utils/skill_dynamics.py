@@ -118,6 +118,7 @@ class SkillDynamics(nn.Module):
 
         self.z_dim = args.skill_dim
         self.max_num_experts = args.skill_max_num_experts
+        self.share_policy = args.share_policy
         num_hiddens = num_hiddens
         self.num_reps = prior_samples
         self.z_range = z_range
@@ -196,10 +197,7 @@ class SkillDynamics(nn.Module):
 
         # obs = batch_norm(obs)
         # Debugging: Print shapes to verify dimensions
-        if isinstance(obs, np.ndarray):
-            obs = torch.from_numpy(obs).to(self.device)
-
-        obs = self.flat_tool(obs)
+        obs = self.process_obs(obs)
         self.bn_in.train(mode=training)
         norm_obs = self.bn_in(obs)
         if isinstance(z, np.ndarray):
@@ -228,9 +226,7 @@ class SkillDynamics(nn.Module):
         gmm = self.get_distribution(obs, z, training)
         self.bn_target.train(mode=training)
 
-        if isinstance(next_obs, np.ndarray):
-            next_obs = torch.from_numpy(next_obs).to(self.device)
-        next_obs = self.flat_tool(next_obs)
+        next_obs = self.process_obs(next_obs)
         norm_next_obs = self.bn_target(next_obs)
         return gmm.log_prob(norm_next_obs)
 
@@ -242,7 +238,9 @@ class SkillDynamics(nn.Module):
             alt_obs = obs.copy()
             alt_next_obs = next_obs.copy()
             # continuous uniform
-            alt_skill = np.random.uniform(self.z_range[0], self.z_range[1], size=[alt_obs.shape[0], self.z_dim]).astype(
+            alt_skill = np.random.uniform(self.z_range[0], self.z_range[1],
+                                          size=[alt_obs.shape[0] * (1 if not self.share_policy else alt_obs.shape[1]),
+                                                self.z_dim]).astype(
                 np.float32)
         elif self.z_type == 'discrete':
             # alt_obs = obs.repeat(self.z_dim, 1)
@@ -254,12 +252,9 @@ class SkillDynamics(nn.Module):
         alt_skill = torch.from_numpy(alt_skill)
 
         log_prob = self.get_log_prob(obs, z, next_obs, training=False)  # [Batch_size]
-        log_prob = log_prob.reshape(obs.shape[0], 1)
+        log_prob = log_prob.reshape(obs.shape[0] * (1 if not self.share_policy else obs.shape[1]), 1)
         alt_log_prob = self.get_log_prob(alt_obs, alt_skill, alt_next_obs, training=False)  # [Batch_size*num_reps]
-        # alt_log_prob = torch.cat(torch.split(alt_log_prob, num_reps,dim=0),dim=0) # [Batch_size, num_reps]
-        # alt_log_prob = alt_log_prob.reshape(obs.shape[0], num_reps)  # [Batch_size, num_reps]
-        # print(log_prob.shape)
-        # print(alt_log_prob.shape)
+
         if weights is not None:
             diff = (alt_log_prob - log_prob) * weights
         else:
@@ -281,6 +276,17 @@ class SkillDynamics(nn.Module):
         if self._dynamics_l2_reg and not self._dynamics_spectral_norm:
             dynamics_loss += l2_loss
         return dynamics_loss
+
+    def process_obs(self, obs):
+        if isinstance(obs, np.ndarray):
+            obs = torch.from_numpy(obs).to(self.device)
+
+        if self.share_policy:
+            if len(obs.shape) == 5:
+                thread_num, agent_num, h, w, c = obs.shape
+                obs = torch.reshape(obs, (thread_num * agent_num, h, w, c))
+
+        return self.flat_tool(obs)
 
 
 class SkillDiscriminator(nn.Module):

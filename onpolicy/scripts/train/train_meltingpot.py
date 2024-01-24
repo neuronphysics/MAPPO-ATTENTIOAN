@@ -236,7 +236,7 @@ def load_test_args(args):
     args.log_interval = 1
     args.episode_length = 200
     args.data_chunk_length = 4
-    args.attention_module = 'SCOFF'
+    args.attention_module = 'RIM'
 
 
 if __name__ == "__main__":

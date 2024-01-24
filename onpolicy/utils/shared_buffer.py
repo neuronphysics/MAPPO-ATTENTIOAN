@@ -32,6 +32,8 @@ class SharedReplayBuffer(object):
         self._use_popart = args.use_popart
         self._use_valuenorm = args.use_valuenorm
         self._use_proper_time_limits = args.use_proper_time_limits
+        self._skill_dim = args.skill_dim
+        self._alpha = args.coefficient_skill_return
 
         obs_shape = get_shape_from_obs_space(obs_space)
         share_obs_shape = get_shape_from_obs_space(cent_obs_space)
@@ -45,6 +47,16 @@ class SharedReplayBuffer(object):
         self.share_obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, num_agents, *share_obs_shape),
                                   dtype=np.float32)
         self.obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, num_agents, *obs_shape), dtype=np.float32)
+
+        self.next_share_obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, num_agents, *share_obs_shape),
+                                       dtype=np.float32)  ##new
+        self.next_obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, num_agents, *obs_shape),
+                                 dtype=np.float32)
+        self.intrinsic_rewards = np.zeros((self.episode_length + 1, self.n_rollout_threads, num_agents, 1),
+                                          dtype=np.float32)
+
+        self.skills = np.zeros((self.episode_length + 1, self.n_rollout_threads, num_agents, self._skill_dim),
+                               dtype=np.float32)
 
         self.rnn_states = np.zeros(
             (self.episode_length + 1, self.n_rollout_threads, num_agents, self.recurrent_N, self.hidden_size),
@@ -77,7 +89,8 @@ class SharedReplayBuffer(object):
         self.step = 0
 
     def insert(self, share_obs, obs, rnn_states, rnn_states_critic, actions, action_log_probs,
-               value_preds, rewards, masks, bad_masks=None, active_masks=None, available_actions=None):
+               value_preds, rewards, masks, intrinsic_rewards, skills, bad_masks=None, active_masks=None,
+               available_actions=None):
         """
         Insert data into the buffer.
         :param share_obs: (argparse.Namespace) arguments containing relevant model, policy, and env information.
@@ -89,6 +102,8 @@ class SharedReplayBuffer(object):
         :param value_preds: (np.ndarray) value function prediction at each step.
         :param rewards: (np.ndarray) reward collected at each step.
         :param masks: (np.ndarray) denotes whether the environment has terminated or not.
+        :param intrinsic_rewards: (np.ndarray)
+        :param skills: (np.ndarray)
         :param bad_masks: (np.ndarray) action space for agents.
         :param active_masks: (np.ndarray) denotes whether an agent is active or dead in the env.
         :param available_actions: (np.ndarray) actions available to each agent. If None, all actions are available.
@@ -102,6 +117,8 @@ class SharedReplayBuffer(object):
         self.value_preds[self.step] = value_preds.copy()
         self.rewards[self.step] = rewards.copy()
         self.masks[self.step + 1] = masks.copy()
+        self.intrinsic_rewards[self.step] = intrinsic_rewards.copy()
+        self.skills[self.step] = skills.copy()
         if bad_masks is not None:
             self.bad_masks[self.step + 1] = bad_masks.copy()
         if active_masks is not None:
@@ -178,14 +195,16 @@ class SharedReplayBuffer(object):
                 for step in reversed(range(self.rewards.shape[0])):
                     if self._use_popart or self._use_valuenorm:
                         # step + 1
-                        delta = self.rewards[step] + self.gamma * value_normalizer.denormalize(
+                        delta = self.rewards[step] + self._alpha * self.intrinsic_rewards[
+                            step] + self.gamma * value_normalizer.denormalize(
                             self.value_preds[step + 1]) * self.masks[step + 1] \
                                 - value_normalizer.denormalize(self.value_preds[step])
                         gae = delta + self.gamma * self.gae_lambda * gae * self.masks[step + 1]
                         gae = gae * self.bad_masks[step + 1]
                         self.returns[step] = gae + value_normalizer.denormalize(self.value_preds[step])
                     else:
-                        delta = self.rewards[step] + self.gamma * self.value_preds[step + 1] * self.masks[step + 1] - \
+                        delta = self.rewards[step] + self._alpha * self.intrinsic_rewards[
+                            step] + self.gamma * self.value_preds[step + 1] * self.masks[step + 1] - \
                                 self.value_preds[step]
                         gae = delta + self.gamma * self.gae_lambda * self.masks[step + 1] * gae
                         gae = gae * self.bad_masks[step + 1]
@@ -195,12 +214,12 @@ class SharedReplayBuffer(object):
                 for step in reversed(range(self.rewards.shape[0])):
                     if self._use_popart or self._use_valuenorm:
                         self.returns[step] = (self.returns[step + 1] * self.gamma * self.masks[step + 1] + self.rewards[
-                            step]) * self.bad_masks[step + 1] \
+                            step] + self._alpha * self.intrinsic_rewards[step]) * self.bad_masks[step + 1] \
                                              + (1 - self.bad_masks[step + 1]) * value_normalizer.denormalize(
                             self.value_preds[step])
                     else:
                         self.returns[step] = (self.returns[step + 1] * self.gamma * self.masks[step + 1] + self.rewards[
-                            step]) * self.bad_masks[step + 1] \
+                            step] + self._alpha * self.intrinsic_rewards[step]) * self.bad_masks[step + 1] \
                                              + (1 - self.bad_masks[step + 1]) * self.value_preds[step]
         else:
             if self._use_gae:
@@ -208,20 +227,23 @@ class SharedReplayBuffer(object):
                 gae = 0
                 for step in reversed(range(self.rewards.shape[0])):
                     if self._use_popart or self._use_valuenorm:
-                        delta = self.rewards[step] + self.gamma * value_normalizer.denormalize(
+                        delta = self.rewards[step] + self._alpha * self.intrinsic_rewards[
+                            step] + self.gamma * value_normalizer.denormalize(
                             self.value_preds[step + 1]) * self.masks[step + 1] \
                                 - value_normalizer.denormalize(self.value_preds[step])
                         gae = delta + self.gamma * self.gae_lambda * self.masks[step + 1] * gae
                         self.returns[step] = gae + value_normalizer.denormalize(self.value_preds[step])
                     else:
-                        delta = self.rewards[step] + self.gamma * self.value_preds[step + 1] * self.masks[step + 1] - \
+                        delta = self.rewards[step] + self._alpha * self.intrinsic_rewards[
+                            step] + self.gamma * self.value_preds[step + 1] * self.masks[step + 1] - \
                                 self.value_preds[step]
                         gae = delta + self.gamma * self.gae_lambda * self.masks[step + 1] * gae
                         self.returns[step] = gae + self.value_preds[step]
             else:
                 self.returns[-1] = next_value
                 for step in reversed(range(self.rewards.shape[0])):
-                    self.returns[step] = self.returns[step + 1] * self.gamma * self.masks[step + 1] + self.rewards[step]
+                    self.returns[step] = self.returns[step + 1] * self.gamma * self.masks[step + 1] + self.rewards[
+                        step] + self._alpha * self.intrinsic_rewards[step]
 
     def feed_forward_generator(self, advantages, num_mini_batch=None, mini_batch_size=None):
         """
@@ -281,8 +303,8 @@ class SharedReplayBuffer(object):
             else:
                 adv_targ = advantages[indices]
 
-            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch,\
-                  value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch,\
+            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \
+                  value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
                   adv_targ, available_actions_batch
 
     def naive_recurrent_generator(self, advantages, num_mini_batch):
@@ -378,8 +400,8 @@ class SharedReplayBuffer(object):
             old_action_log_probs_batch = _flatten(T, N, old_action_log_probs_batch)
             adv_targ = _flatten(T, N, adv_targ)
 
-            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch,\
-                  value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch,\
+            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \
+                  value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
                   adv_targ, available_actions_batch
 
     def recurrent_generator(self, advantages, num_mini_batch, data_chunk_length):
@@ -400,11 +422,14 @@ class SharedReplayBuffer(object):
         if len(self.share_obs.shape) > 4:
             share_obs = self.share_obs[:-1].transpose(1, 2, 0, 3, 4, 5).reshape(-1, *self.share_obs.shape[3:])
             obs = self.obs[:-1].transpose(1, 2, 0, 3, 4, 5).reshape(-1, *self.obs.shape[3:])
+            next_obs = self.next_obs[:-1].transpose(1, 2, 0, 3, 4, 5).reshape(-1, *self.next_obs.shape[3:])
         else:
             share_obs = _cast(self.share_obs[:-1])
             obs = _cast(self.obs[:-1])
+            next_obs = _cast(self.next_obs[:-1])
 
         actions = _cast(self.actions)
+        skills = _cast(self.skills)
         action_log_probs = _cast(self.action_log_probs)
         advantages = _cast(advantages)
         value_preds = _cast(self.value_preds[:-1])
@@ -424,6 +449,8 @@ class SharedReplayBuffer(object):
         for indices in sampler:
             share_obs_batch = []
             obs_batch = []
+            next_obs_batch = []
+            skill_batch = []
             rnn_states_batch = []
             rnn_states_critic_batch = []
             actions_batch = []
@@ -441,6 +468,8 @@ class SharedReplayBuffer(object):
                 # size [T+1 N M Dim]-->[T N M Dim]-->[N,M,T,Dim]-->[N*M*T,Dim]-->[L,Dim]
                 share_obs_batch.append(share_obs[ind:ind + data_chunk_length])
                 obs_batch.append(obs[ind:ind + data_chunk_length])
+                next_obs_batch.append((next_obs[ind:ind + data_chunk_length]))
+                skill_batch.append(skills[ind:ind + data_chunk_length])
                 actions_batch.append(actions[ind:ind + data_chunk_length])
                 if self.available_actions is not None:
                     available_actions_batch.append(available_actions[ind:ind + data_chunk_length])
@@ -459,8 +488,10 @@ class SharedReplayBuffer(object):
             # These are all from_numpys of size (L, N, Dim)           
             share_obs_batch = np.stack(share_obs_batch, axis=1)
             obs_batch = np.stack(obs_batch, axis=1)
+            next_obs_batch = np.stack(next_obs_batch, axis=1)
 
             actions_batch = np.stack(actions_batch, axis=1)
+            skill_batch = np.stack(skill_batch, axis=1)
             if self.available_actions is not None:
                 available_actions_batch = np.stack(available_actions_batch, axis=1)
             value_preds_batch = np.stack(value_preds_batch, axis=1)
@@ -477,7 +508,9 @@ class SharedReplayBuffer(object):
             # Flatten the (L, N, ...) from_numpys to (L * N, ...)
             share_obs_batch = _flatten(L, N, share_obs_batch)
             obs_batch = _flatten(L, N, obs_batch)
+            next_obs_batch = _flatten(L, N, next_obs_batch)
             actions_batch = _flatten(L, N, actions_batch)
+            skill_batch = _flatten(L, N, skill_batch)
             if self.available_actions is not None:
                 available_actions_batch = _flatten(L, N, available_actions_batch)
             else:
@@ -489,6 +522,6 @@ class SharedReplayBuffer(object):
             old_action_log_probs_batch = _flatten(L, N, old_action_log_probs_batch)
             adv_targ = _flatten(L, N, adv_targ)
 
-            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch,\
-                  value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch,\
-                  adv_targ, available_actions_batch
+            yield share_obs_batch, obs_batch, next_obs_batch, skill_batch, rnn_states_batch, rnn_states_critic_batch, \
+                  actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, \
+                  old_action_log_probs_batch, adv_targ, available_actions_batch
