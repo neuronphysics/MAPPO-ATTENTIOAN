@@ -70,15 +70,30 @@ class Runner(object):
             from onpolicy.algorithms.r_mappo.r_mappo import R_MAPPO as TrainAlgo
             from onpolicy.algorithms.r_mappo.algorithm.rMAPPOPolicy import R_MAPPOPolicy as Policy
 
-        share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space
-        
-        # policy network
-        self.policy = Policy(self.all_args,
-                            self.envs.observation_space[0],
-                            share_observation_space,
-                            self.envs.action_space[0],
-                            self.num_agents, # default 2
-                            device = self.device)
+        if not self.env_name == "Meltingpot":
+           share_observation_space = self.envs.share_observation_space[0] if self.use_centralized_V else self.envs.observation_space[0]
+           # policy network
+           self.policy = Policy(self.all_args,
+                                self.envs.observation_space[0],
+                                share_observation_space,
+                                self.envs.action_space[0],
+                                self.num_agents, # default 2
+                                device = self.device)
+        else:
+            player_key = f"player_0"
+            share_observation_space = self.envs.share_observation_space[player_key] if self.use_centralized_V else \
+                self.envs.share_observation_space[player_key]
+            # policy network
+            self.policy = Policy(self.all_args,
+                                 self.envs.observation_space[player_key]['RGB'],
+                                 share_observation_space,
+                                 self.envs.action_space[player_key],
+                                 device = self.device)
+
+        print("obs_space: ", self.envs.observation_space)
+        print("share_obs_space: ", self.envs.share_observation_space)
+        print("act_space: ", self.envs.action_space)
+
 
         if self.model_dir is not None:
             self.restore(self.model_dir)
@@ -88,14 +103,21 @@ class Runner(object):
             self.trainer = TrainAlgo(self.all_args, self.policy, self.num_agents, device = self.device)
         else:
             self.trainer = TrainAlgo(self.all_args, self.policy, device = self.device)
-        
-        # buffer
-        self.buffer = SharedReplayBuffer(self.all_args,
+        if not self.env_name == "Meltingpot":
+           # buffer
+           self.buffer = SharedReplayBuffer(self.all_args,
+                                            self.num_agents,
+                                            self.envs.observation_space[0],
+                                            share_observation_space,
+                                            self.envs.action_space[0])
+        else:
+           # buffer
+           player_key = f"player_0"
+           self.buffer = SharedReplayBuffer(self.all_args,
                                         self.num_agents,
-                                        self.envs.observation_space[0],
+                                        self.envs.observation_space[player_key]['RGB'],
                                         share_observation_space,
-                                        self.envs.action_space[0])
-
+                                        self.envs.action_space[player_key])
     def run(self):
         """Collect training data, perform training updates, and evaluate policy."""
         raise NotImplementedError
