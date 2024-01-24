@@ -74,12 +74,12 @@ class R_Actor(nn.Module):
                 print("We are using RIM...")
                 self.rnn = RIM(device, self.hidden_size, self.hidden_size, num_units=args.rim_num_units,
                                k=args.rim_topk, rnn_cell='GRU', n_layers=1, bidirectional=False, batch_first=True,
-                               num_rules=4, rule_time_steps=1)
+                               num_rules=0, rule_time_steps=1)
             elif self._attention_module == "SCOFF":
                 print("We are using SCOFF...")
                 self.rnn = SCOFF(device, self.hidden_size, self.hidden_size, num_units=args.scoff_num_units,
                                  k=args.scoff_topk, num_templates=2, rnn_cell='GRU', n_layers=1, bidirectional=False,
-                                 batch_first=False, version=self._use_version_scoff, num_rules=4, rule_time_steps=1)
+                                 batch_first=False, version=self._use_version_scoff, num_rules=0, rule_time_steps=1)
 
         elif not self.use_attention:
             base = CNNBase if len(obs_shape) >= 3 else MLPBase
@@ -135,6 +135,9 @@ class R_Actor(nn.Module):
 
         skills = self.skill_discriminator.get_distribution(obs).sample()
 
+        if self.use_attention:
+            actor_features = torch.squeeze(actor_features, dim=0)
+
         actor_features = torch.cat([actor_features, skills], dim=1)  # combine skills and actor features
         actions, action_log_probs = self.act(actor_features, available_actions, deterministic)
 
@@ -169,6 +172,9 @@ class R_Actor(nn.Module):
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy or self.use_attention:
             actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
+
+        if len(actor_features.shape) == 3:
+            actor_features = torch.squeeze(actor_features, dim=0)
 
         actor_features = torch.cat([actor_features, skills], dim=1)
         if self.algo == "hatrpo":

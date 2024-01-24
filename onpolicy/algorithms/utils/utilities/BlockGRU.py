@@ -62,12 +62,7 @@ class BlockGRU(nn.Module):
                     zero_matrix_elements(p[self.nhid*e : self.nhid*(e+1)], k=self.k)
 
     def forward(self, input, h):
-
-        #self.blockify_params()
-        print("Inside BlockGRU - Shape of input:", input.shape)
-        print("Inside BlockGRU - Shape of h:", h.shape)
         hnext = self.gru(input, h)
-        print(f"Inside BlockGRU - after GRU {hnext.shape}")
         return hnext, None
 
 class Identity(torch.autograd.Function):

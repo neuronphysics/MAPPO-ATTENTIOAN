@@ -274,7 +274,6 @@ class FourierPositionEncoding(nn.Module):
 
     def forward(self, index_dims, batch_size, device, pos=None):
 
-        print(f"FourierPositionEncoding forward called with index_dims={index_dims}, batch_size={batch_size}")
         pos = _check_or_build_spatial_positions(pos, index_dims, batch_size)
         fourier_pos_enc = generate_fourier_features(
             pos,

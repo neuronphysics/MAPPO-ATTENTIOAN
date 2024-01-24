@@ -229,12 +229,12 @@ def load_test_args(args):
     args.use_wandb = False
     args.user_name = "sc_debug_test_name"
     # args.wandb_name = "zsheikhb"
-    args.share_policy = False
+    args.share_policy = True
     args.use_centralized_V = False
     args.use_attention = False
     args.num_env_steps = 500000
     args.log_interval = 1
-    args.episode_length = 1000
+    args.episode_length = 200
     args.data_chunk_length = 4
     args.attention_module = 'SCOFF'
 

@@ -9,15 +9,17 @@ from onpolicy.utils.util import update_linear_schedule
 from onpolicy.runner.shared.base_runner import Runner
 import imageio
 
+
 def _t2n(x):
     return x.detach().cpu().numpy()
+
 
 class MeltingpotRunner(Runner):
     def __init__(self, config):
         super(MeltingpotRunner, self).__init__(config)
-       
+
     def run(self):
-        self.warmup()   
+        self.warmup()
 
         start = time.time()
         episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
@@ -30,22 +32,22 @@ class MeltingpotRunner(Runner):
             for step in range(self.episode_length):
                 # Sample actions
                 values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env = self.collect(step)
-                    
+
                 # Obser reward and next obs
                 obs, rewards, dones, truncations, infos = self.envs.step(actions_env)
 
-                data = obs, rewards, dones, truncations, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic 
-                
+                data = obs, rewards, dones, truncations, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic
+
                 # insert data into buffer
                 self.insert(data)
 
             # compute return and update network
             self.compute()
             train_infos = self.train()
-            
+
             # post process
             total_num_steps = (episode + 1) * self.episode_length * self.n_rollout_threads
-            
+
             # save model
             if (episode % self.save_interval == 0 or episode == episodes - 1):
                 self.save()
@@ -54,19 +56,20 @@ class MeltingpotRunner(Runner):
             if episode % self.log_interval == 0:
                 end = time.time()
                 print("\n Scenario {} Algo {} Exp {} updates {}/{} episodes, total num timesteps {}/{}, FPS {}.\n"
-                        .format(self.all_args.scenario_name,
-                                self.algorithm_name,
-                                self.experiment_name,
-                                episode,
-                                episodes,
-                                total_num_steps,
-                                self.num_env_steps,
-                                int(total_num_steps / (end - start))))
+                      .format(self.all_args.scenario_name,
+                              self.algorithm_name,
+                              self.experiment_name,
+                              episode,
+                              episodes,
+                              total_num_steps,
+                              self.num_env_steps,
+                              int(total_num_steps / (end - start))))
 
                 if self.env_name == "Meltingpot":
                     idv_rews = []
                     for agent_id in range(self.num_agents):
-                        train_infos["average_episode_rewards"]= np.mean(self.buffer[agent_id].rewards) * self.episode_length})
+                        train_infos["average_episode_rewards"] = np.mean(
+                            self.buffer[agent_id].rewards * self.episode_length)
                     print("average episode rewards is {}".format(train_infos["average_episode_rewards"]))
                 self.log_train(train_infos, total_num_steps)
 
@@ -88,16 +91,15 @@ class MeltingpotRunner(Runner):
         self.buffer.share_obs[0] = share_obs.copy()
         self.buffer.obs[0] = obs.copy()
 
-
     @torch.no_grad()
     def collect(self, step):
         self.trainer.prep_rollout()
         value, action, action_log_prob, rnn_states, rnn_states_critic \
             = self.trainer.policy.get_actions(np.concatenate(self.buffer.share_obs[step]),
-                            np.concatenate(self.buffer.obs[step]),
-                            np.concatenate(self.buffer.rnn_states[step]),
-                            np.concatenate(self.buffer.rnn_states_critic[step]),
-                            np.concatenate(self.buffer.masks[step]))
+                                              np.concatenate(self.buffer.obs[step]),
+                                              np.concatenate(self.buffer.rnn_states[step]),
+                                              np.concatenate(self.buffer.rnn_states_critic[step]),
+                                              np.concatenate(self.buffer.masks[step]))
         # [self.envs, agents, dim]
         values = np.array(np.split(_t2n(value), self.n_rollout_threads))
         actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
@@ -119,13 +121,14 @@ class MeltingpotRunner(Runner):
 
         return values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env
 
-
     def insert(self, data):
-        
+
         obs, rewards, done, truncations, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic = data
 
-        rnn_states[done == True] = np.zeros(((done == True).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
-        rnn_states_critic[done == True] = np.zeros(((done == True).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+        rnn_states[done == True] = np.zeros(((done == True).sum(), self.recurrent_N, self.hidden_size),
+                                            dtype=np.float32)
+        rnn_states_critic[done == True] = np.zeros(((done == True).sum(), self.recurrent_N, self.hidden_size),
+                                                   dtype=np.float32)
         masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
         masks[done == True] = np.zeros(((done == True).sum(), 1), dtype=np.float32)
 
@@ -136,10 +139,11 @@ class MeltingpotRunner(Runner):
         else:
             share_obs = obs
 
-        self.buffer.insert(share_obs, obs, rnn_states, rnn_states_critic, actions, action_log_probs, values, rewards, masks)
+        self.buffer.insert(share_obs, obs, rnn_states, rnn_states_critic, actions, action_log_probs, values, rewards,
+                           masks)
 
     @torch.no_grad()
-    def eval(self,total_num_steps):
+    def eval(self, total_num_steps):
         eval_episode_rewards = []
         eval_obs = self.eval_envs.reset()
 
@@ -149,15 +153,15 @@ class MeltingpotRunner(Runner):
         for eval_step in range(self.episode_length):
             self.trainer.prep_rollout()
             eval_action, eval_rnn_states = self.trainer.policy.act(np.concatenate(eval_obs),
-                                                np.concatenate(eval_rnn_states),
-                                                np.concatenate(eval_masks),
-                                                deterministic=True)
+                                                                   np.concatenate(eval_rnn_states),
+                                                                   np.concatenate(eval_masks),
+                                                                   deterministic=True)
             eval_actions = np.array(np.split(_t2n(eval_action), self.n_eval_rollout_threads))
             eval_rnn_states = np.array(np.split(_t2n(eval_rnn_states), self.n_eval_rollout_threads))
-            
+
             if self.eval_envs.action_space[0].__class__.__name__ == 'MultiDiscrete':
                 for i in range(self.eval_envs.action_space[0].shape):
-                    eval_uc_actions_env = np.eye(self.eval_envs.action_space[0].high[i]+1)[eval_actions[:, :, i]]
+                    eval_uc_actions_env = np.eye(self.eval_envs.action_space[0].high[i] + 1)[eval_actions[:, :, i]]
                     if i == 0:
                         eval_actions_env = eval_uc_actions_env
                     else:
@@ -171,7 +175,8 @@ class MeltingpotRunner(Runner):
             eval_obs, eval_rewards, eval_dones, eval_truncations, eval_infos = self.eval_envs.step(eval_actions_env)
             eval_episode_rewards.append(eval_rewards)
 
-            eval_rnn_states[eval_dones == True] = np.zeros(((eval_dones == True).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+            eval_rnn_states[eval_dones == True] = np.zeros(
+                ((eval_dones == True).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
             eval_masks = np.ones((self.n_eval_rollout_threads, self.num_agents, 1), dtype=np.float32)
             eval_masks[eval_dones == True] = np.zeros(((eval_dones == True).sum(), 1), dtype=np.float32)
 
@@ -182,9 +187,8 @@ class MeltingpotRunner(Runner):
         print("eval average episode rewards of agent: " + str(eval_average_episode_rewards))
         self.log_env(eval_env_infos, total_num_steps)
 
-
     @torch.no_grad()
-    def render(self):        
+    def render(self):
         all_frames = []
         for episode in range(self.all_args.render_episodes):
             episode_rewards = []
@@ -195,25 +199,26 @@ class MeltingpotRunner(Runner):
             else:
                 self.envs.render('human')
 
-            rnn_states = np.zeros((self.n_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
+            rnn_states = np.zeros((self.n_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size),
+                                  dtype=np.float32)
             masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-            
+
             episode_rewards = []
-            
+
             for step in range(self.episode_length):
                 calc_start = time.time()
 
                 self.trainer.prep_rollout()
                 action, rnn_states = self.trainer.policy.act(np.concatenate(obs),
-                                                    np.concatenate(rnn_states),
-                                                    np.concatenate(masks),
-                                                    deterministic=True)
+                                                             np.concatenate(rnn_states),
+                                                             np.concatenate(masks),
+                                                             deterministic=True)
                 actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
                 rnn_states = np.array(np.split(_t2n(rnn_states), self.n_rollout_threads))
 
                 if self.envs.action_space[0].__class__.__name__ == 'MultiDiscrete':
                     for i in range(self.envs.action_space[0].shape):
-                        uc_actions_env = np.eye(self.envs.action_space[0].high[i]+1)[actions[:, :, i]]
+                        uc_actions_env = np.eye(self.envs.action_space[0].high[i] + 1)[actions[:, :, i]]
                         if i == 0:
                             actions_env = uc_actions_env
                         else:
@@ -227,7 +232,8 @@ class MeltingpotRunner(Runner):
                 obs, rewards, dones, truncations, infos = self.envs.step(actions_env)
                 episode_rewards.append(rewards)
 
-                rnn_states[dones == True] = np.zeros(((dones == True).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+                rnn_states[dones == True] = np.zeros(((dones == True).sum(), self.recurrent_N, self.hidden_size),
+                                                     dtype=np.float32)
                 masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
                 masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
 

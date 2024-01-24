@@ -81,7 +81,7 @@ class MeltingpotRunner(Runner):
             total_num_steps = (episode + 1) * self.episode_length * self.n_rollout_threads
 
             # save model
-            if (episode % self.save_interval == 0 or episode == episodes - 1):
+            if episode % self.save_interval == 0 or episode == episodes - 1:
                 self.save()
 
             # log information
@@ -244,6 +244,9 @@ class MeltingpotRunner(Runner):
         # ctions (1, num_agent, n_rollout)
         # rnn states (1, num_agent, n_rollout, hidden_size)
         # rnn_states_critic (1, num_agent, n_rollout, hidden_size)
+
+        # if self.use_attention:
+        #     rnn_states = rnn_states.transpose(2, 1, 0, 3)
 
         return values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env, skills, intrinsic_rewards
 
