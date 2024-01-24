@@ -127,6 +127,8 @@ class MeltingpotRunner(Runner):
         actions = np.reshape(_t2n(action), (1, self.n_rollout_threads, self.num_agents)).transpose(0, 2, 1)
         action_log_probs = np.reshape(_t2n(action_log_prob),
                                       (1, self.n_rollout_threads, self.num_agents)).transpose(0, 2, 1)
+        if self.use_attention:
+            rnn_states = rnn_states[0]
         rnn_states = np.reshape(_t2n(rnn_states),
                                 (1, self.n_rollout_threads, self.num_agents, rnn_states.shape[2])).transpose(0, 2, 1, 3)
         rnn_states_critic = np.reshape(_t2n(rnn_states_critic), (

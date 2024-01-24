@@ -53,6 +53,8 @@ class Runner(object):
         # dir
         self.model_dir = self.all_args.model_dir
 
+        self.use_attention = self.all_args.use_attention
+
         if self.use_wandb:
             self.save_dir = str(wandb.run.dir)
             self.run_dir = str(wandb.run.dir)
