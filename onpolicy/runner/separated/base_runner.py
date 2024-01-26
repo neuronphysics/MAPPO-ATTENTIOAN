@@ -64,19 +64,19 @@ class Runner(object):
             if not os.path.exists(self.gif_dir):
                 os.makedirs(self.gif_dir)
         else:
+            self.run_dir = config["run_dir"]
+            self.log_dir = str(self.run_dir / 'logs')
+            if not os.path.exists(self.log_dir):
+                os.makedirs(self.log_dir)
+            self.writter = SummaryWriter(self.log_dir)
+
             if self.use_wandb:
                 self.save_dir = str(wandb.run.dir)
             else:
-                self.run_dir = config["run_dir"]
-                self.log_dir = str(self.run_dir / 'logs')
-                if not os.path.exists(self.log_dir):
-                    os.makedirs(self.log_dir)
-                self.writter = SummaryWriter(self.log_dir)
-                # Add the following line to attach gradient hooks
-
                 self.save_dir = str(self.run_dir / 'models')
-                if not os.path.exists(self.save_dir):
-                    os.makedirs(self.save_dir)
+
+            if not os.path.exists(self.save_dir):
+                os.makedirs(self.save_dir)
 
         if self.all_args.algorithm_name == "happo":
             from onpolicy.algorithms.happo.happo_trainer import HAPPO as TrainAlgo

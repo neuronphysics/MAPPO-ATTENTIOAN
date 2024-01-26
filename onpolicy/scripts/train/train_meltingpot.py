@@ -222,21 +222,23 @@ def load_test_args(args):
     args.env_name = "Meltingpot"
     args.algorithm_name = "mappo"
     args.experiment_name = "check"
-    args.substrate_name = "territory__rooms"
-    args.num_agents = 9
+    args.substrate_name = "allelopathic_harvest__open"
+    args.num_agents = 16
     args.seed = 1
     args.n_rollout_threads = 2
-    args.use_wandb = False
-    args.user_name = "sc_debug_test_name"
-    # args.wandb_name = "zsheikhb"
-    args.share_policy = True
+    args.use_wandb = True
+    args.user_name = "c38su"
+    args.wandb_name = "c38su"
+    args.share_policy = False
     args.use_centralized_V = False
-    args.use_attention = True
+    args.use_attention = False
     args.num_env_steps = 500000
     args.log_interval = 1
-    args.episode_length = 200
+    args.episode_length = 500
     args.data_chunk_length = 4
     args.attention_module = 'SCOFF'
+    args.skill_dim = 20
+    args.skill_discriminator_lr = 7e-4
 
 
 if __name__ == "__main__":
