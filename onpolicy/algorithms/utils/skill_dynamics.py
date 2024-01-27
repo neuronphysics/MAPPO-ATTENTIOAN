@@ -348,8 +348,16 @@ class SkillDiscriminator(nn.Module):
 
     def get_distribution(self, obs, training=False):
         stddev, mean = self.forward(obs, training)
+        # Ensure that stddev and mean are tensors
+        assert torch.is_tensor(stddev), "stddev must be a torch.Tensor"
+        assert torch.is_tensor(mean), "mean must be a torch.Tensor"
 
-        return D.Independent(D.Normal(mean, nn.Softplus()(stddev)), 1)
+        # Apply Softplus to stddev and ensure no negative or zero values
+        positive_stddev = nn.functional.softplus(stddev)
+        assert torch.all(positive_stddev > 0), "stddev must be positive after Softplus"
+
+        return D.Independent(D.Normal(mean, positive_stddev), 1)
+
 
     def get_log_prob(self, obs, z, training=False):
         dist = self.get_distribution(obs, training)
