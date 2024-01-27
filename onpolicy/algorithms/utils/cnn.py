@@ -449,7 +449,7 @@ class Encoder(nn.Module):
         # Position embeddings
         position_encoding_kwargs = dict(
             concat_pos=True, max_resolution=(self.img_height * out_channels // 2, self.img_width * out_channels // 2),
-            num_bands=10, sine_only=False
+            num_bands=16, sine_only=False
         )
         trainable_position_encoding_kwargs = dict(num_channels=out_channels, index_dims=1)
         self.position_embeddings, self.positions_projection = build_position_encoding(

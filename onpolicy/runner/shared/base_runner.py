@@ -77,7 +77,7 @@ class Runner(object):
 
         if not self.env_name == "Meltingpot":
             share_observation_space = self.envs.share_observation_space[0] if self.use_centralized_V else \
-            self.envs.observation_space[0]
+                self.envs.observation_space[0]
             # policy network
             self.policy = Policy(self.all_args,
                                  self.envs.observation_space[0],
