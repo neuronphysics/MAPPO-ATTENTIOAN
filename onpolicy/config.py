@@ -197,6 +197,7 @@ def get_config():
                         default=200, help="Max length for any episode")
 
     # network parameters
+    parser.add_argument("--num_bands_positional_encoding", type=int, default=16, help="number of bands for Fourier positional encoding inside the encoder")
     parser.add_argument("--use_attention", type=bool,
                         default=False, help='Whether agent use the attention module or not')
     parser.add_argument("--attention_module", type=str,
