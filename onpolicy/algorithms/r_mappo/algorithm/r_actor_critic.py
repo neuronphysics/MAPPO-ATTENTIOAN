@@ -70,7 +70,7 @@ class R_Actor(nn.Module):
                                 kernel_size=kernel,
                                 stride_size=stride,
                                 padding_size=padding,
-                                num_bands_positional_encoding= self.num_bands_positional_encoding)
+                                num_bands_positional_encoding=self.num_bands_positional_encoding)
 
             if self._attention_module == "RIM":
                 print("We are using RIM...")
@@ -239,17 +239,17 @@ class R_Critic(nn.Module):
             # making parametrs of encoder for CNN compatible with different image sizes
             kernel, stride, padding = calculate_conv_params((input_width, input_height, input_channel))
 
-            self.base = Encoder(input_channel, 
-                                input_height, 
-                                input_width, 
-                                self.hidden_size, 
-                                device, 
+            self.base = Encoder(input_channel,
+                                input_height,
+                                input_width,
+                                self.hidden_size,
+                                device,
                                 max_filters=256,
-                                num_layers=3, 
-                                kernel_size=kernel, 
-                                stride_size=stride, 
+                                num_layers=3,
+                                kernel_size=kernel,
+                                stride_size=stride,
                                 padding_size=padding,
-                                num_bands_positional_encoding= self.num_bands_positional_encoding)
+                                num_bands_positional_encoding=self.num_bands_positional_encoding)
             if self._attention_module == "RIM":
 
                 self.rnn = RIM(device, self.hidden_size, self.hidden_size, num_units=args.rim_num_units,

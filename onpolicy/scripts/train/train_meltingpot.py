@@ -231,12 +231,12 @@ def load_test_args(args):
     args.wandb_name = "c38su"
     args.share_policy = False
     args.use_centralized_V = False
-    args.use_attention = True
+    args.use_attention = False
     args.num_env_steps = 500000
     args.log_interval = 1
-    args.episode_length = 100
-    args.data_chunk_length = 4
-    args.attention_module = 'SCOFF'
+    args.episode_length = 200
+    args.data_chunk_length = 10
+    args.attention_module = 'RIM'
     args.skill_dim = 20
     args.skill_discriminator_lr = 7e-4
 
