@@ -35,6 +35,7 @@ class R_Actor(nn.Module):
         self._recurrent_N = args.recurrent_N
         self._z_dim = args.skill_dim
         self._use_version_scoff = args.use_version_scoff
+        self.num_bands_positional_encoding = args.num_bands_positional_encoding
         self.tpdv = dict(dtype=torch.float32, device=device)
 
         obs_shape = get_shape_from_obs_space(obs_space)
@@ -68,7 +69,8 @@ class R_Actor(nn.Module):
                                 num_layers=3,
                                 kernel_size=kernel,
                                 stride_size=stride,
-                                padding_size=padding)
+                                padding_size=padding,
+                                num_bands_positional_encoding= self.num_bands_positional_encoding)
 
             if self._attention_module == "RIM":
                 print("We are using RIM...")
@@ -213,6 +215,7 @@ class R_Critic(nn.Module):
         self._use_recurrent_policy = args.use_recurrent_policy
         self._recurrent_N = args.recurrent_N
         self._use_popart = args.use_popart
+        self.num_bands_positional_encoding = args.num_bands_positional_encoding
         self.tpdv = dict(dtype=torch.float32, device=device)
         init_method = [nn.init.xavier_uniform_, nn.init.orthogonal_][self._use_orthogonal]
         cent_obs_shape = get_shape_from_obs_space(cent_obs_space)
@@ -236,8 +239,17 @@ class R_Critic(nn.Module):
             # making parametrs of encoder for CNN compatible with different image sizes
             kernel, stride, padding = calculate_conv_params((input_width, input_height, input_channel))
 
-            self.base = Encoder(input_channel, input_height, input_width, self.hidden_size, device, max_filters=256,
-                                num_layers=3, kernel_size=kernel, stride_size=stride, padding_size=padding)
+            self.base = Encoder(input_channel, 
+                                input_height, 
+                                input_width, 
+                                self.hidden_size, 
+                                device, 
+                                max_filters=256,
+                                num_layers=3, 
+                                kernel_size=kernel, 
+                                stride_size=stride, 
+                                padding_size=padding,
+                                num_bands_positional_encoding= self.num_bands_positional_encoding)
             if self._attention_module == "RIM":
 
                 self.rnn = RIM(device, self.hidden_size, self.hidden_size, num_units=args.rim_num_units,
