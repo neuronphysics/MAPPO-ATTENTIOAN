@@ -93,9 +93,6 @@ def main(args):
     parser = get_config()
     all_args = parse_args(args, parser)
 
-    # todo debug
-    load_test_args(all_args)
-
     if all_args.algorithm_name == "rmappo":
         print("u are choosing to use rmappo, we set use_recurrent_policy to be True")
         all_args.use_recurrent_policy = True
