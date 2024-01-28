@@ -116,7 +116,7 @@ class Runner(object):
 
             self.policy.append(po)
         # Add the following line to attach gradient hooks
-        self.attach_gradient_hooks()
+        #self.attach_gradient_hooks()
         # if self.model_dir is not None:
         #    self.restore()
 
