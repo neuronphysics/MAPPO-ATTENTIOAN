@@ -2,13 +2,13 @@
 #SBATCH --job-name=MAPPO
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=32
 #SBATCH --gres=gpu:v100:4
 #SBATCH --mem=100G   
-#SBATCH --time=01:00:00
+#SBATCH --time=1-23:59:00
 #SBATCH --account=def-gdumas85
-#SBATCH --output=/home/memole/projects/def-gdumas85/memole/MPPO-ATTENTIOAN/logs/MAPPO-attention-meltingpot-seed-1_%N-%j.out
-#SBATCH --error=/home/memole/projects/def-gdumas85/memole/MPPO-ATTENTIOAN/logs/MAPPO-attention-meltingpot-seed-1_%N-%j.err
+#SBATCH --output=/home/memole/projects/def-gdumas85/memole/MARL_SKILL/MPPO-ATTENTIOAN/logs/MAPPO-attention-meltingpot-seed-1_%N-%j.out
+#SBATCH --error=//home/memole/projects/def-gdumas85/memole/MARL_SKILL/MPPO-ATTENTIOAN/logs/MAPPO-attention-meltingpot-seed-1_%N-%j.err
 #SBATCH --mail-user=sheikhbahaee@gmail.com              # notification for job conditions
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
@@ -45,11 +45,11 @@ pip install --no-index --upgrade pip
 # install on-policy package
 WANDB_CREDENTIALS_PATH='/home/memole/projects/def-gdumas85/memole/wandb_credentials.txt'
 export WANDB_API_KEY=$(cat $WANDB_CREDENTIALS_PATH)
-cd /home/memole/projects/def-gdumas85/memole/MPPO-ATTENTIOAN/
+cd /home/memole/projects/def-gdumas85/memole/MARL_SKILL/MPPO-ATTENTIOAN
 pip install -e .
 #install starcraft
 #mkdir 3rdparty
-export SC2PATH="/home/memole/projects/def-gdumas85/memole/MPPO-ATTENTIOAN/3rdparty/StarCraftII"
+#export SC2PATH="/home/memole/projects/def-gdumas85/memole/MARL_SKILL/MPPO-ATTENTIOAN/3rdparty/StarCraftII"
 
 #cd 3rdparty
 #echo 'SC2PATH is set to '$SC2PATH
@@ -118,8 +118,9 @@ cd $DIR/onpolicy/scripts/train
 #   --substrate_name "clean_up" --num_agents 7 --seed 1 --n_rollout_threads 5 --use_wandb --user_name "zsheikhb" --wandb_name "zsheikhb" \
 #   --share_policy False --use_centralized_V False --use_attention True --use_obs_instead_of_state True
 
-CUDA_VISIBLE_DEVICES=0 python train_meltingpot.py --use_valuenorm --use_popart True --env_name "Meltingpot" \
+CUDA_VISIBLE_DEVICES=0,1,2,3 python train_meltingpot.py --use_valuenorm --use_popart True --env_name "Meltingpot" \
     --algorithm_name "mappo" --experiment_name "check" \
-    --substrate_name "territory__rooms" --num_agents 9 --seed 1 --n_rollout_threads 5 \
+    --substrate_name "territory__rooms" --num_agents 9 --seed 1 --n_rollout_threads 2 \
     --use_wandb --user_name "zsheikhb" --wandb_name "zsheikhb" --share_policy False --use_centralized_V False --use_attention True \
-    --num_env_steps 10 --log_interval 1 --episode_length 2
+    --skill_dim 32  --num_training_skill_dynamics 1 --entropy_coef 0.005 --attention_module "SCOFF" --scoff_num_units 5 --scoff_topk 5 --hidden_size 75 \
+    --num_env_steps 1000000 --log_interval 1 --episode_length 1000
