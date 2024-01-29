@@ -211,7 +211,7 @@ def get_config():
     parser.add_argument("--rim_num_units", type=int, default=6, help="specify the number of units in RIM")
     parser.add_argument("--rim_topk", type=int, default=4, help="specify the number of topk in RIM")
 
-    parser.add_argument("--share_policy",
+    parser.add_argument("--share_policy", type=get_bool,
                         default=False, help='Whether agent share the same policy')
     parser.add_argument("--use_centralized_V", type=get_bool,
                         default=True, help="Whether to use centralized V function")
@@ -334,6 +334,7 @@ def get_config():
                         help="specify the number of experts in the skill dynamics network")
     parser.add_argument("--skill_discriminator_lr", type=float, default=3e-4,
                         help="Skill dynamics discriminator's learning rate.")
+    parser.add_argument("--skill_dim", type=int, default=10, help="skill dimension")
     parser.add_argument("--dynamics_lr", type=float, default=3e-4, help="Skill dynamics learning rate.")
     parser.add_argument("--num_training_skill_dynamics", type=int, default=5, help="skill dynamics training steps")
     parser.add_argument("--coefficient_skill_return", type=float, default=0.1,

@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 import sys
 import os
+import time
+
 import wandb
 import socket
 import setproctitle
@@ -143,7 +145,7 @@ def main(args):
                          notes=socket.gethostname(),
                          name=str(all_args.algorithm_name) + "_" +
                               str(all_args.experiment_name) +
-                              "_seed" + str(all_args.seed),
+                              "_seed_" + str(all_args.seed) + "_" + time.strftime("%H:%M:%S", time.localtime()),
                          group=all_args.scenario_name,
                          dir=str(run_dir),
                          job_type="training",
