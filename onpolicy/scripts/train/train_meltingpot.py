@@ -115,7 +115,8 @@ def main(args):
     if all_args.substrate_name == 'collaborative_cooking':
         substrate.get_config(all_args.substrate_name).cooking_pot_pseudoreward = 1.0
 
-        # cuda
+    print(all_args)
+    # cuda
     if all_args.cuda and torch.cuda.is_available():
         print("choose to use gpu...")
         device = torch.device("cuda:0")

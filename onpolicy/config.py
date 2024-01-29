@@ -166,10 +166,10 @@ def get_config():
     parser.add_argument("--experiment_name", type=str, default="check",
                         help="an identifier to distinguish different experiment.")
     parser.add_argument("--seed", type=int, default=1, help="Random seed for numpy/torch")
-    parser.add_argument("--cuda", action='store_false', default=True,
+    parser.add_argument("--cuda", type=get_bool, default=True,
                         help="by default True, will use GPU to train; or else will use CPU;")
     parser.add_argument("--cuda_deterministic",
-                        action='store_false', default=True,
+                        type=get_bool, default=True,
                         help="by default, make sure random seed effective. if set, bypass such function.")
     parser.add_argument("--n_training_threads", type=int,
                         default=1, help="Number of torch threads for training")
@@ -183,13 +183,15 @@ def get_config():
                         help='Number of environment steps to train (default: 10e6)')
     parser.add_argument("--user_name", type=str, default='marl',
                         help="[for wandb usage], to specify user's name for simply collecting training data.")
-    parser.add_argument("--use_wandb", action='store_false', default=True,
-                        help="[for wandb usage], by default True, will log date to wandb server. "
+    parser.add_argument("--wandb_name", type=str, default='marl',
+                        help="[for wandb usage], to specify user's name for simply collecting training data.")
+    parser.add_argument("--use_wandb", type=get_bool, default=False,
+                        help="[for wandb usage], by default False, will log date to wandb server. "
                              "or else will use tensorboard to log data.")
 
     # env parameters
-    parser.add_argument("--env_name", type=str, default='StarCraft2', help="specify the name of environment")
-    parser.add_argument("--use_obs_instead_of_state", action='store_true',
+    parser.add_argument("--env_name", type=str, default='Meltingpot', help="specify the name of environment")
+    parser.add_argument("--use_obs_instead_of_state", type=get_bool,
                         default=False, help="Whether to use global state or concatenated obs")
 
     # replay buffer parameters
@@ -197,8 +199,9 @@ def get_config():
                         default=200, help="Max length for any episode")
 
     # network parameters
-    parser.add_argument("--num_bands_positional_encoding", type=int, default=16, help="number of bands for Fourier positional encoding inside the encoder")
-    parser.add_argument("--use_attention", type=bool,
+    parser.add_argument("--num_bands_positional_encoding", type=int, default=16,
+                        help="number of bands for Fourier positional encoding inside the encoder")
+    parser.add_argument("--use_attention", type=get_bool,
                         default=False, help='Whether agent use the attention module or not')
     parser.add_argument("--attention_module", type=str,
                         default='RIM', help='specify the name of attention module')
@@ -208,35 +211,35 @@ def get_config():
     parser.add_argument("--rim_num_units", type=int, default=6, help="specify the number of units in RIM")
     parser.add_argument("--rim_topk", type=int, default=4, help="specify the number of topk in RIM")
 
-    parser.add_argument("--share_policy", action='store_false',
-                        default=True, help='Whether agent share the same policy')
-    parser.add_argument("--use_centralized_V", action='store_false',
+    parser.add_argument("--share_policy",
+                        default=False, help='Whether agent share the same policy')
+    parser.add_argument("--use_centralized_V", type=get_bool,
                         default=True, help="Whether to use centralized V function")
     parser.add_argument("--stacked_frames", type=int, default=1,
                         help="Dimension of hidden layers for actor/critic networks")
-    parser.add_argument("--use_stacked_frames", action='store_true',
+    parser.add_argument("--use_stacked_frames", type=get_bool,
                         default=False, help="Whether to use stacked_frames")
     parser.add_argument("--hidden_size", type=int, default=96,
                         help="Dimension of hidden layers for actor/critic networks")
     parser.add_argument("--layer_N", type=int, default=1,
                         help="Number of layers for actor/critic networks")
-    parser.add_argument("--use_ReLU", action='store_false',
+    parser.add_argument("--use_ReLU", type=get_bool,
                         default=True, help="Whether to use ReLU")
-    parser.add_argument("--use_popart", action='store_true', default=False,
+    parser.add_argument("--use_popart", type=get_bool, default=False,
                         help="by default False, use PopArt to normalize rewards.")
-    parser.add_argument("--use_valuenorm", action='store_false', default=True,
+    parser.add_argument("--use_valuenorm", type=get_bool, default=True,
                         help="by default True, use running mean and std to normalize rewards.")
-    parser.add_argument("--use_feature_normalization", action='store_false',
+    parser.add_argument("--use_feature_normalization", type=get_bool,
                         default=True, help="Whether to apply layernorm to the inputs")
-    parser.add_argument("--use_orthogonal", action='store_false', default=True,
+    parser.add_argument("--use_orthogonal", type=get_bool, default=True,
                         help="Whether to use Orthogonal initialization for weights and 0 initialization for biases")
     parser.add_argument("--gain", type=float, default=0.01,
                         help="The gain # of last action layer")
 
     # recurrent parameters
-    parser.add_argument("--use_naive_recurrent_policy", action='store_true',
+    parser.add_argument("--use_naive_recurrent_policy", type=get_bool,
                         default=False, help='Whether to use a naive recurrent policy')
-    parser.add_argument("--use_recurrent_policy", action='store_false',
+    parser.add_argument("--use_recurrent_policy", type=get_bool,
                         default=True, help='use a recurrent policy')
     parser.add_argument("--recurrent_N", type=int, default=1, help="The number of recurrent layers.")
     parser.add_argument("--data_chunk_length", type=int, default=10,
@@ -255,7 +258,7 @@ def get_config():
     parser.add_argument("--ppo_epoch", type=int, default=15,
                         help='number of ppo epochs (default: 15)')
     parser.add_argument("--use_clipped_value_loss",
-                        action='store_false', default=True,
+                        type=get_bool, default=True,
                         help="by default, clip loss value. If set, do not clip loss value.")
     parser.add_argument("--clip_param", type=float, default=0.2,
                         help='ppo clip parameter (default: 0.2)')
@@ -266,30 +269,30 @@ def get_config():
     parser.add_argument("--value_loss_coef", type=float,
                         default=1, help='value loss coefficient (default: 0.5)')
     parser.add_argument("--use_max_grad_norm",
-                        action='store_false', default=True,
+                        type=get_bool, default=True,
                         help="by default, use max norm of gradients. If set, do not use.")
     parser.add_argument("--max_grad_norm", type=float, default=10.0,
                         help='max norm of gradients (default: 0.5)')
-    parser.add_argument("--use_gae", action='store_false',
+    parser.add_argument("--use_gae", type=get_bool,
                         default=True, help='use generalized advantage estimation')
     parser.add_argument("--gamma", type=float, default=0.99,
                         help='discount factor for rewards (default: 0.99)')
     parser.add_argument("--gae_lambda", type=float, default=0.95,
                         help='gae lambda parameter (default: 0.95)')
-    parser.add_argument("--use_proper_time_limits", action='store_true',
+    parser.add_argument("--use_proper_time_limits", type=get_bool,
                         default=False, help='compute returns taking into account time limits')
-    parser.add_argument("--use_huber_loss", action='store_false', default=True,
+    parser.add_argument("--use_huber_loss", type=get_bool, default=True,
                         help="by default, use huber loss. If set, do not use huber loss.")
     parser.add_argument("--use_value_active_masks",
-                        action='store_false', default=True,
+                        type=get_bool, default=True,
                         help="by default True, whether to mask useless data in value loss.")
     parser.add_argument("--use_policy_active_masks",
-                        action='store_false', default=True,
+                        type=get_bool, default=True,
                         help="by default True, whether to mask useless data in policy loss.")
     parser.add_argument("--huber_delta", type=float, default=10.0, help=" coefficience of huber loss.")
 
     # run parameters
-    parser.add_argument("--use_linear_lr_decay", action='store_true',
+    parser.add_argument("--use_linear_lr_decay", type=get_bool,
                         default=False, help='use a linear schedule on the learning rate')
     # save parameters
     parser.add_argument("--save_interval", type=int, default=1,
@@ -300,16 +303,16 @@ def get_config():
                         help="time duration between contiunous twice log printing.")
 
     # eval parameters
-    parser.add_argument("--use_eval", action='store_true', default=False,
+    parser.add_argument("--use_eval", type=get_bool, default=False,
                         help="by default, do not start evaluation. If set`, start evaluation alongside with training.")
     parser.add_argument("--eval_interval", type=int, default=25,
                         help="time duration between contiunous twice evaluation progress.")
     parser.add_argument("--eval_episodes", type=int, default=32, help="number of episodes of a single evaluation.")
 
     # render parameters
-    parser.add_argument("--save_gifs", action='store_true', default=False,
+    parser.add_argument("--save_gifs", type=get_bool, default=False,
                         help="by default, do not save render video. If set, save video.")
-    parser.add_argument("--use_render", action='store_true', default=False,
+    parser.add_argument("--use_render", type=get_bool, default=False,
                         help="by default, do not render the env during training. If set, start render. Note: something,"
                              " the environment has internal render process which is not controlled by this hyperparam.")
     parser.add_argument("--render_episodes", type=int, default=5, help="the number of episodes to render a given env")
@@ -321,7 +324,7 @@ def get_config():
                         help="by default None. set the path to pretrained model.")
 
     # meltingpot parameter
-    parser.add_argument("--downsample", action='store_false', default=True,
+    parser.add_argument("--downsample", type=get_bool, default=True,
                         help="the scale factor of each rendered image in saved video.")
 
     # skill learing parameters
@@ -329,11 +332,14 @@ def get_config():
                         help="specify the number of hidden units in the skill dynamics network")
     parser.add_argument("--skill_max_num_experts", type=int, default=10,
                         help="specify the number of experts in the skill dynamics network")
-    parser.add_argument("--dynamics_lr", type=int, default=3e-4, help="Skill dynamics learning rate.")
-    parser.add_argument("--skill_dim", type=int, default=10, help="skill dimension")
-    parser.add_argument("--skill_discriminator_lr", type=int, default=3e-4,
+    parser.add_argument("--skill_discriminator_lr", type=float, default=3e-4,
                         help="Skill dynamics discriminator's learning rate.")
+    parser.add_argument("--dynamics_lr", type=float, default=3e-4, help="Skill dynamics learning rate.")
     parser.add_argument("--num_training_skill_dynamics", type=int, default=5, help="skill dynamics training steps")
     parser.add_argument("--coefficient_skill_return", type=float, default=0.1,
                         help="the scaling coefficient for the intrinsic rewards in the final returns.")
     return parser
+
+
+def get_bool(string):
+    return True if string.lower() == 'true' else False
