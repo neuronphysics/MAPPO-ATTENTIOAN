@@ -339,6 +339,7 @@ def get_config():
     parser.add_argument("--num_training_skill_dynamics", type=int, default=5, help="skill dynamics training steps")
     parser.add_argument("--coefficient_skill_return", type=float, default=0.1,
                         help="the scaling coefficient for the intrinsic rewards in the final returns.")
+    parser.add_argument("--skill_dynamics_grad_norm", type=float, default=0.5, help="gradient clipping value for skill dynamics and discriminator")
     return parser
 
 
