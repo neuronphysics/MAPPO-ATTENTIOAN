@@ -12,13 +12,6 @@ from typing import Any, Dict, List, Tuple, Union, Optional
 TensorType = Any
 
 
-def stickbreak(v):
-    """Stick break function in PyTorch"""
-    batch_ndims = len(v.shape) - 1
-    cumprod_one_minus_v = torch.exp(torch.log1p(-v).cumsum(-1))
-    one_v = nn.functional.pad(v, pad=[0, 1] * batch_ndims + [0, 1], value=1)
-    c_one = nn.functional.pad(cumprod_one_minus_v, pad=[0, 0] * batch_ndims + [1, 0], value=1)
-    return one_v * c_one
 
 
 def get_activation_fn(name: Optional[str] = None):
@@ -58,9 +51,11 @@ class SlimFC(nn.Module):
                  in_size: int,
                  out_size: int,
                  initializer: Any = None,
+                 use_batch_normalization: Any = None,
                  activation_fn: Any = None,
                  use_bias: bool = True,
                  bias_init: float = 0.0,
+                 use_skip_connection: bool =False,
                  apply_spectral_norm: bool = False):
         """Creates a standard FC layer, similar to torch.nn.Linear
 
@@ -75,7 +70,10 @@ class SlimFC(nn.Module):
         """
         super(SlimFC, self).__init__()
         layers = []
+        self._use_skip_connection = use_skip_connection
         # Actual nn.Linear layer (including correct initialization logic).
+        if self._use_skip_connection:
+            self.skip_connection = nn.Identity()
         linear = nn.Linear(in_size, out_size, bias=use_bias)
         if initializer:
             initializer(linear.weight)
@@ -85,16 +83,24 @@ class SlimFC(nn.Module):
             linear = nn.utils.spectral_norm(linear)
 
         layers.append(linear)
+        if use_batch_normalization is not None:
+           layers.append(nn.BatchNorm1d(out_size))
         # Activation function (if any; default=None (linear)).
         if isinstance(activation_fn, str):
             activation_fn = get_activation_fn(activation_fn, "torch")
         if activation_fn is not None:
-            layers.append(activation_fn())
+            layers.append(activation_fn)
         # Put everything in sequence.
         self._model = nn.Sequential(*layers)
 
     def forward(self, x: TensorType) -> TensorType:
-        return self._model(x)
+        if self._use_skip_connection:
+            identity = self.skip_connection(x)
+        out = self._model(x)
+        if self._use_skip_connection:
+            out += identity
+        return out
+
 
 
 class SkillDynamics(nn.Module):
@@ -109,6 +115,7 @@ class SkillDynamics(nn.Module):
                  device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
                  z_type='cont',
                  prior_samples=100,
+                 use_batch_normalization=True,
                  dynamics_reg_hiddens=False,
                  dynamics_orth_reg=True,
                  dynamics_l2_reg=False,
@@ -141,24 +148,26 @@ class SkillDynamics(nn.Module):
 
         self.bn_in = nn.BatchNorm1d(self.obs_dim)
         self.bn_target = nn.BatchNorm1d(self.obs_dim, affine=False)
-        activation_fn = nn.ELU
+        activation_fn = nn.LeakyReLU(negative_slope=0.2)
 
-        hiddens = [SlimFC(input_dim, hidden_dim, activation_fn=activation_fn,
+        hiddens = [SlimFC(input_dim, hidden_dim, activation_fn=activation_fn, 
+                          use_batch_normalization=use_batch_normalization, 
                           initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
-                          apply_spectral_norm=self._dynamics_spectral_norm),
-                   nn.LayerNorm(hidden_dim)]
+                          apply_spectral_norm=self._dynamics_spectral_norm)]
 
         for _ in range(num_hiddens - 1):
-            hiddens.append(SlimFC(hidden_dim, hidden_dim, activation_fn=activation_fn,
+            hiddens.append(SlimFC(hidden_dim, hidden_dim, activation_fn=activation_fn, 
+                                  use_batch_normalization=use_batch_normalization,
                                   initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
+                                  use_skip_connection = True,
                                   apply_spectral_norm=self._dynamics_spectral_norm))
         self.hiddens = nn.Sequential(*hiddens)
 
-        self.logits = SlimFC(hidden_dim + self.z_dim, self.max_num_experts,
+        self.logits = SlimFC(hidden_dim + input_dim, self.max_num_experts,
                              initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
                              apply_spectral_norm=self._dynamics_spectral_norm)  # nn.Linear(hidden_dim, self.num_experts)
 
-        self.means = SlimFC(hidden_dim + self.z_dim, self.max_num_experts * self.obs_dim,
+        self.means = SlimFC(hidden_dim + input_dim, self.max_num_experts * self.obs_dim,
                             initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
                             apply_spectral_norm=self._dynamics_spectral_norm)  # nn.Linear(hidden_dim, self.num_experts * self.obs_dim)
         # print(self.hiddens._modules)
@@ -206,10 +215,10 @@ class SkillDynamics(nn.Module):
             z = z.to(self.device)
         inp = torch.cat([norm_obs, z], dim=-1)
         x = self.hiddens(inp)
-
+        combined_input = torch.cat([inp, x], dim=-1) #skip connection
         # https://luiarthur.github.io/TuringBnpBenchmarks/dpsbgmm
-        eta = self.logits(torch.cat([x, z], dim=-1))  # [batch,num_experts]
-        means = self.means(torch.cat([x, z], dim=-1))
+        eta = self.logits(combined_input)  # Adjusted for skip connection [batch,num_experts]
+        means = self.means(tcombined_input)
         means = means.reshape(obs.shape[0], self.max_num_experts, self.obs_dim)
         return eta, means
 
@@ -298,6 +307,7 @@ class SkillDiscriminator(nn.Module):
                  hidden_dim,
                  num_hiddens=2,
                  device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+                 use_batch_normalization=True,
                  discriminator_spectral_norm=False):
         super(SkillDiscriminator, self).__init__()
         self.obs_dim = reduce(lambda x, y: x * y, obs_shape[0:])
@@ -307,12 +317,11 @@ class SkillDiscriminator(nn.Module):
         self.bn_in = nn.BatchNorm1d(self.obs_dim)
 
         input_dim = self.obs_dim
-        activation_fn = nn.ELU
+        activation_fn = nn.LeakyReLU(negative_slope=0.2)
 
         hiddens = [SlimFC(input_dim, hidden_dim, activation_fn=activation_fn,
                           initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
-                          apply_spectral_norm=discriminator_spectral_norm),
-                   nn.LayerNorm(hidden_dim)]
+                          apply_spectral_norm=discriminator_spectral_norm)]
 
         for _ in range(num_hiddens - 1):
             hiddens.append(SlimFC(hidden_dim, hidden_dim, activation_fn=activation_fn,
@@ -353,8 +362,8 @@ class SkillDiscriminator(nn.Module):
         assert torch.is_tensor(mean), "mean must be a torch.Tensor"
 
         # Apply Softplus to stddev and ensure no negative or zero values
-        positive_stddev = nn.functional.softplus(stddev)
-        assert torch.all(positive_stddev > 0), "stddev must be positive after Softplus"
+        positive_stddev = nn.Softplus()(stddev)
+        assert torch.all(positive_stddev >= 0), "stddev must be positive after Softplus"
 
         return D.Independent(D.Normal(mean, positive_stddev), 1)
 

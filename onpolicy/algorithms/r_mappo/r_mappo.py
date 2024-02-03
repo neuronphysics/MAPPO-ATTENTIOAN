@@ -41,6 +41,7 @@ class R_MAPPO():
         self._use_valuenorm = args.use_valuenorm
         self._use_value_active_masks = args.use_value_active_masks
         self._use_policy_active_masks = args.use_policy_active_masks
+        self._gardient_clipping_val = args.skill_dynamics_grad_norm
         ###skill learing ####
         self._num_training_skill = args.num_training_skill_dynamics
 
@@ -161,11 +162,13 @@ class R_MAPPO():
             skill_discriminator_loss.append(discriminator_loss)
 
             dynamics_loss.backward()
+            nn.utils.clip_grad_norm_(self.policy.actor.dynamics.parameters(), max_norm=self._gardient_clipping_val)
             self.policy.actor.dynamics.dynamics_opt.step()
 
             # Optimize skill discriminator
 
             discriminator_loss.backward()
+            nn.utils.clip_grad_norm_(self.policy.actor.skill_discriminator.parameters(), max_norm=self._gardient_clipping_val)
             self.policy.actor.skill_discriminator.discriminator_opt.step()
 
         ##new
