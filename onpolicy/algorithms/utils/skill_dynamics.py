@@ -218,7 +218,7 @@ class SkillDynamics(nn.Module):
         combined_input = torch.cat([inp, x], dim=-1) #skip connection
         # https://luiarthur.github.io/TuringBnpBenchmarks/dpsbgmm
         eta = self.logits(combined_input)  # Adjusted for skip connection [batch,num_experts]
-        means = self.means(tcombined_input)
+        means = self.means(combined_input)
         means = means.reshape(obs.shape[0], self.max_num_experts, self.obs_dim)
         return eta, means
 
@@ -362,8 +362,8 @@ class SkillDiscriminator(nn.Module):
         assert torch.is_tensor(mean), "mean must be a torch.Tensor"
 
         # Apply Softplus to stddev and ensure no negative or zero values
-        positive_stddev = nn.Softplus()(stddev)
-        assert torch.all(positive_stddev >= 0), "stddev must be positive after Softplus"
+        positive_stddev = nn.Softplus()(stddev) + 1e-20
+        assert torch.all(positive_stddev > 0), "stddev must be positive after Softplus"
 
         return D.Independent(D.Normal(mean, positive_stddev), 1)
 

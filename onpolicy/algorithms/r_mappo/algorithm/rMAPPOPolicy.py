@@ -127,8 +127,3 @@ class R_MAPPOPolicy:
         """
         actions, _, rnn_states_actor = self.actor(obs, rnn_states_actor, masks, available_actions, deterministic)
         return actions, rnn_states_actor
-
-    def compute_intrinsic_reward(self, obs, actions, next_obs):
-        # Compute intrinsic reward using skill dynamics
-        intrinsic_reward = self.skill_dynamics.compute_reward(obs, actions, next_obs)
-        return intrinsic_reward

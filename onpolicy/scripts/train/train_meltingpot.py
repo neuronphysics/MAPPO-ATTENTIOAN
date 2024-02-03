@@ -100,7 +100,7 @@ def main(args):
         all_args.use_recurrent_policy = True
         all_args.use_naive_recurrent_policy = False
     elif all_args.algorithm_name == "mappo":
-        print("TRAIN, value of use_attention is {all_args.use_attention}")
+        print(f"TRAIN, value of use_attention is {all_args.use_attention}")
         if all_args.use_recurrent_policy or all_args.use_naive_recurrent_policy:
             print("u are choosing to use mappo, we set use_recurrent_policy & use_naive_recurrent_policy to be True")
         if all_args.use_attention and not (all_args.use_recurrent_policy or all_args.use_naive_recurrent_policy):

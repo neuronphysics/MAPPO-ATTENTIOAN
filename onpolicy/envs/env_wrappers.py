@@ -793,7 +793,6 @@ class DummyVecEnv(ShareVecEnv):
 
     def step_wait(self):
         results = [env.step(a) for (a, env) in zip(self.actions, self.envs)]
-        print(f"we are inside the DummyVecEnv class and step_wait func. results of step are {results}")
         obs, rews, dones, infos = map(np.array, zip(*results))
 
         # for (i, done) in enumerate(dones):

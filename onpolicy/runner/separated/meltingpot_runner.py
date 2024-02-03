@@ -45,7 +45,7 @@ class MeltingpotRunner(Runner):
 
         for episode in range(episodes):
             self.envs.reset()
-            
+
             print(f'Episode {episode} start at {time.time()}')
             if self.use_linear_lr_decay:
                 for agent_id in range(self.num_agents):
@@ -109,6 +109,9 @@ class MeltingpotRunner(Runner):
 
                         train_infos[agent_id].update(
                             {"average_episode_rewards": np.mean(self.buffer[agent_id].rewards) * self.episode_length})
+                        train_infos[agent_id].update(
+                            {"average_intrinsic_rewards": np.mean(
+                                self.buffer[agent_id].intrinsic_rewards)})
                         print("average episode rewards for agent {} is {}".format(agent_id, train_infos[agent_id][
                             "average_episode_rewards"]))
 
