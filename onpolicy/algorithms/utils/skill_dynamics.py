@@ -225,7 +225,10 @@ class SkillDynamics(nn.Module):
     def get_distribution(self, obs, z, training=False):
         eta, means = self.forward(obs, z, training)
         eta = torch.softmax(eta, dim=-1)  # Apply softmax to get probabilities
-        diags = torch.ones_like(means) * self.variance  # (num_components, obs_size)
+        # Ensure that self.variance is positive
+        assert self.variance > 0, "Variance must be positive"
+
+        diags = torch.ones_like(means) * (self.variance + 1e-10)  # (num_components, obs_size)
         mix = D.Categorical(eta)
         comp = D.Independent(D.Normal(means, diags), 1)
         gmm = D.MixtureSameFamily(mix, comp)
