@@ -31,7 +31,7 @@ class R_MAPPO():
         self.entropy_coef = args.entropy_coef
         self.max_grad_norm = args.max_grad_norm
         self.huber_delta = args.huber_delta
-
+        self._use_attention  = args.use_attention
         self._use_recurrent_policy = args.use_recurrent_policy
         self._use_naive_recurrent = args.use_naive_recurrent_policy
         self._use_max_grad_norm = args.use_max_grad_norm
@@ -156,8 +156,8 @@ class R_MAPPO():
         for _ in range(self._num_training_skill):
             self.policy.actor.dynamics.dynamics_opt.zero_grad()
             self.policy.actor.skill_discriminator.discriminator_opt.zero_grad()
-            dynamics_loss = self.policy.actor.dynamics.compute_loss(next_obs_batch, obs_batch, skills_batch)
-            discriminator_loss = self.policy.actor.skill_discriminator.compute_loss(obs_batch, skills_batch)
+            dynamics_loss = self.policy.actor.dynamics.compute_loss(next_obs_batch, obs_batch, skills_batch, rnn_states_batch, masks_batch )
+            discriminator_loss = self.policy.actor.skill_discriminator.compute_loss(obs_batch, skills_batch, rnn_states_batch, masks_batch)
             skill_dynamics_loss.append(dynamics_loss)
             skill_discriminator_loss.append(discriminator_loss)
 
@@ -220,7 +220,8 @@ class R_MAPPO():
         train_info['skill_discriminator_loss'] = 0  ##new
 
         for _ in range(self.ppo_epoch):
-            if self._use_recurrent_policy:
+            if self._use_recurrent_policy or self._use_attention:
+                print("train ppo with recurrent policy.")
                 data_generator = buffer.recurrent_generator(advantages, self.num_mini_batch, self.data_chunk_length)
             elif self._use_naive_recurrent:
                 data_generator = buffer.naive_recurrent_generator(advantages, self.num_mini_batch)
