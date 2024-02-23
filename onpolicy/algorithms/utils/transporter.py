@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import scipy
+from .util import init, calculate_conv_params
 BN_MOMENTUM = 0.1
 logger = logging.getLogger(__name__)
 
@@ -285,10 +286,10 @@ class CNNKeyPointsBase(NNBase):
         feat_channels = 32
         if not self.feat_from_selfsup_attention:
             self.convs_1 = nn.Sequential(
-                init_(nn.Conv2d(num_inputs, 32, 8, stride=4)),
+                init_(nn.Conv2d(num_inputs, 32, 8, stride=1)),
                 nn.ReLU())
             self.convs_2 = nn.Sequential(
-                init_(nn.Conv2d(32, 64, 4, stride=2)), nn.ReLU())
+                init_(nn.Conv2d(32, 64, 4, stride=1)), nn.ReLU())
             self.convs_3 = nn.Sequential(
                 init_(nn.Conv2d(64, 32, 3, stride=1)), nn.ReLU())
 
@@ -352,7 +353,7 @@ class CNNKeyPointsBase(NNBase):
             x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
 
         if output_mask:
-            rnn_hxs = [rnn_hxs, mask]
+            rnn_hxs = [rnn_hxs, masks]
         if output_feat:
             if self.output_original_mask:
                 rnn_hxs = [rnn_hxs, ori_feat]

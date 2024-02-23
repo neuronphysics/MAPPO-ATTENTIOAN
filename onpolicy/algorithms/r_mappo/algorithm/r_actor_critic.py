@@ -94,8 +94,8 @@ class R_Actor(nn.Module):
                 print("We are using LSTM...")
                 self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
 
-        self.dynamics = SkillDynamics(args, self._obs_shape, self.hidden_size)
-        self.skill_discriminator = SkillDiscriminator(args, self._obs_shape, self.hidden_size)
+        self.dynamics = SkillDynamics(args, self._obs_shape)
+        self.skill_discriminator = SkillDiscriminator(args, self._obs_shape)
         self.act = ACTLayer(action_space, self.hidden_size + self._z_dim,
                             self._use_orthogonal, self._gain)
 
@@ -134,7 +134,7 @@ class R_Actor(nn.Module):
                 actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
                 rnn_states = rnn_states.permute(1, 0, 2)
 
-        skills = self.skill_discriminator.get_distribution(obs, rnn_states, mask).sample()
+        skills = self.skill_discriminator.get_distribution(obs, rnn_states, masks).sample()
 
         if self.use_attention:
             actor_features = torch.squeeze(actor_features, dim=0)
@@ -169,7 +169,7 @@ class R_Actor(nn.Module):
             active_masks = check(active_masks).to(**self.tpdv)
 
         actor_features = self.base(obs)
-        skills = self.skill_discriminator.get_distribution(obs, rnn_states, mask).sample()
+        skills = self.skill_discriminator.get_distribution(obs, rnn_states, masks).sample()
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy or self.use_attention:
             actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)

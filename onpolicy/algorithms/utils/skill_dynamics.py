@@ -54,7 +54,7 @@ class SlimFC(nn.Module):
                  activation_fn: Any = None,
                  use_bias: bool = True,
                  bias_init: float = 0.0,
-                 use_skip_connection: bool =False,
+                 use_skip_connection: bool = False,
                  apply_spectral_norm: bool = False):
         """Creates a standard FC layer, similar to torch.nn.Linear
 
@@ -83,7 +83,7 @@ class SlimFC(nn.Module):
 
         layers.append(linear)
         if use_batch_normalization is not None:
-           layers.append(nn.BatchNorm1d(out_size))
+            layers.append(nn.BatchNorm1d(out_size))
         # Activation function (if any; default=None (linear)).
         if isinstance(activation_fn, str):
             activation_fn = get_activation_fn(activation_fn, "torch")
@@ -99,7 +99,6 @@ class SlimFC(nn.Module):
         if self._use_skip_connection:
             out += identity
         return out
-
 
 
 class SkillDynamics(nn.Module):
@@ -121,10 +120,11 @@ class SkillDynamics(nn.Module):
                  base_kwargs=None):
         super().__init__()
 
+        if base_kwargs is None:
+            base_kwargs = {}
         self.z_dim = args.skill_dim
         self.max_num_experts = args.skill_max_num_experts
         self.share_policy = args.share_policy
-        num_hiddens = num_hiddens
         self.num_reps = prior_samples
         self.z_range = z_range
         self.z_type = z_type
@@ -138,23 +138,23 @@ class SkillDynamics(nn.Module):
 
         # Assuming obs_shape is something like (batch_size, dim1, dim2, ...)
         self.obs_dim = reduce(lambda x, y: x * y, obs_shape[0:])
-        self.hiddens = CNNBase(obs_shape[0], **base_kwargs)
+        self.hiddens = CNNBase(obs_shape[2], **base_kwargs)
 
         input_dim = self.hiddens.output_size + self.z_dim
         print(f"size of observational skill dynamics input {self.obs_dim}")
         print(f'dynamics input dim: {input_dim}')
-        self.bn_in = nn.BatchNorm2d(self.obs_dim)
+        self.bn_in = nn.BatchNorm2d(obs_shape[0])
         self.bn_target = nn.BatchNorm2d(self.obs_dim, affine=False)
 
         self.logits = SlimFC(self.hiddens.output_size + input_dim, self.max_num_experts,
                              initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
                              apply_spectral_norm=self._dynamics_spectral_norm)  # nn.Linear(hidden_dim, self.num_experts)
 
-        self.means  = SlimFC(self.hiddens.output_size + input_dim, self.max_num_experts * self.obs_dim,
-                             initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
-                             apply_spectral_norm=self._dynamics_spectral_norm)  # nn.Linear(hidden_dim, self.num_experts * self.obs_dim)
+        self.means = SlimFC(self.hiddens.output_size + input_dim, self.max_num_experts * self.obs_dim,
+                            initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
+                            apply_spectral_norm=self._dynamics_spectral_norm)  # nn.Linear(hidden_dim, self.num_experts * self.obs_dim)
         if not fix_variance:
-            self.stddev  = SlimFC(self.hiddens.output_size + input_dim, self.max_num_experts * self.obs_dim,
+            self.stddev = SlimFC(self.hiddens.output_size + input_dim, self.max_num_experts * self.obs_dim,
                                  initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
                                  apply_spectral_norm=self._dynamics_spectral_norm)
         # print(self.hiddens._modules)
@@ -202,22 +202,22 @@ class SkillDynamics(nn.Module):
             z = z.to(self.device)
         inp = torch.cat([norm_obs, z], dim=-1)
         x = self.hiddens(inp, rnn_hxs, masks, output_mask=output_mask, output_feat=output_feat)
-        combined_input = torch.cat([inp, x], dim=-1) #skip connection
+        combined_input = torch.cat([inp, x], dim=-1)  # skip connection
         # https://luiarthur.github.io/TuringBnpBenchmarks/dpsbgmm
         eta = self.logits(combined_input)  # Adjusted for skip connection [batch,num_experts]
         means = self.means(combined_input)
         means = means.reshape(obs.shape[0], self.max_num_experts, self.obs_dim)
         if not self.fix_variance:
-            stddevs = nn.Softplus()(self.stddev(x)) 
+            stddevs = nn.Softplus()(self.stddev(x))
         else:
-            stddevs = torch.ones_like(means)   # (num_components, obs_size)
+            stddevs = torch.ones_like(means)  # (num_components, obs_size)
         return eta, means, stddevs
 
     def get_distribution(self, obs, z, rnn_hxs, masks, output_mask=False, output_feat=False, training=False):
         eta, means, diags = self.forward(obs, z, rnn_hxs, masks, output_mask, output_feat, training)
         eta = torch.softmax(eta, dim=-1)  # Apply softmax to get probabilities
         # Ensure that self.variance is positive
-        
+
         mix = D.Categorical(eta)
         comp = D.Independent(D.Normal(means, diags), 1)
         gmm = D.MixtureSameFamily(mix, comp)
@@ -231,7 +231,8 @@ class SkillDynamics(nn.Module):
         norm_next_obs = self.bn_target(next_obs)
         return gmm.log_prob(norm_next_obs)
 
-    def _calculate_intrinsic_rewards(self, obs, z, next_obs, rnn_hxs, masks, output_mask=False, output_feat=False, weights=None):
+    def _calculate_intrinsic_rewards(self, obs, z, next_obs, rnn_hxs, masks, output_mask=False, output_feat=False,
+                                     weights=None):
         num_reps = self.num_reps if self.z_type == 'cont' else self.z_dim
         if self.z_type == 'cont':
             # alt_obs = obs.repeat(num_reps, 1)  # [Batch_size*num_reps, obs_dim]
@@ -252,9 +253,11 @@ class SkillDynamics(nn.Module):
         # implement https://github.com/google-research/dads/blob/abc37f532c26658e41ae309b646e8963bd7a8676/unsupervised_skill_learning/skill_discriminator.py#L108C1-L114C60
         alt_skill = torch.from_numpy(alt_skill)
 
-        log_prob = self.get_log_prob(obs, z, next_obs, rnn_hxs, masks, output_mask, output_feat, training=False)  # [Batch_size]
+        log_prob = self.get_log_prob(obs, z, next_obs, rnn_hxs, masks, output_mask, output_feat,
+                                     training=False)  # [Batch_size]
         log_prob = log_prob.reshape(obs.shape[0] * (1 if not self.share_policy else obs.shape[1]), 1)
-        alt_log_prob = self.get_log_prob(alt_obs, alt_skill, alt_next_obs, rnn_hxs, masks, output_mask, output_feat, training=False)  # [Batch_size*num_reps]
+        alt_log_prob = self.get_log_prob(alt_obs, alt_skill, alt_next_obs, rnn_hxs, masks, output_mask, output_feat,
+                                         training=False)  # [Batch_size*num_reps]
 
         if weights is not None:
             diff = (alt_log_prob - log_prob) * weights
@@ -269,7 +272,7 @@ class SkillDynamics(nn.Module):
     def compute_loss(self, next_obs, obs, z, rnn_hxs, masks, output_mask=False, output_feat=False):
         next_dynamics_obs = next_obs - obs
         log_prob = self.get_log_prob(obs, z, next_dynamics_obs, rnn_hxs, masks, output_mask=output_mask,
-                                                   output_feat=output_feat, training=True)
+                                     output_feat=output_feat, training=True)
         dynamics_loss = -torch.mean(log_prob)
         orth_loss = self.orthogonal_regularization()
         l2_loss = self.l2_regularization()
@@ -302,13 +305,15 @@ class SkillDiscriminator(nn.Module):
                  discriminator_spectral_norm=False,
                  base_kwargs=None):
         super(SkillDiscriminator, self).__init__()
+
+        if base_kwargs is None:
+            base_kwargs = {}
         self.obs_dim = reduce(lambda x, y: x * y, obs_shape[0:])
         self.skill_dim = args.skill_dim
         self.device = device
-        self.bn_in = nn.BatchNorm2d(self.obs_dim)
+        self.bn_in = nn.BatchNorm2d(obs_shape[0])
 
-
-        self.hiddens = CNNBase(obs_shape[0], **base_kwargs)
+        self.hiddens = CNNBase(obs_shape[2], **base_kwargs)
 
         self.std = SlimFC(self.hiddens.output_size, self.skill_dim,
                           initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
@@ -328,16 +333,18 @@ class SkillDiscriminator(nn.Module):
     def forward(self, obs, rnn_hxs, masks, output_mask, output_feat, training):
         if isinstance(obs, np.ndarray):
             obs = torch.from_numpy(obs).to(self.device)
-        
+
         self.bn_in.train(mode=training)
         norm_obs = self.bn_in(obs)
+        norm_obs = norm_obs.permute(0, 3, 1, 2)
         x = self.hiddens(norm_obs, rnn_hxs, masks, output_mask=output_mask, output_feat=output_feat)
         eta = self.std(x)  # [batch,num_experts]
         mean = self.means(x)
         return eta, mean
 
     def get_distribution(self, obs, rnn_hxs, masks, output_mask=False, output_feat=False, training=False):
-        stddev, mean = self.forward(obs, rnn_hxs, masks, output_mask=output_mask, output_feat=output_feat, training=training)
+        stddev, mean = self.forward(obs, rnn_hxs, masks, output_mask=output_mask, output_feat=output_feat,
+                                    training=training)
         # Ensure that stddev and mean are tensors
         assert torch.is_tensor(stddev), "stddev must be a torch.Tensor"
         assert torch.is_tensor(mean), "mean must be a torch.Tensor"
@@ -348,9 +355,9 @@ class SkillDiscriminator(nn.Module):
 
         return D.Independent(D.Normal(mean, positive_stddev), 1)
 
-
     def get_log_prob(self, obs, z, rnn_hxs, masks, output_mask=False, output_feat=False, training=False):
-        dist = self.get_distribution(obs, rnn_hxs, masks, output_mask=output_mask, output_feat=output_feat, training=training)
+        dist = self.get_distribution(obs, rnn_hxs, masks, output_mask=output_mask, output_feat=output_feat,
+                                     training=training)
         if isinstance(z, np.ndarray):
             z = torch.from_numpy(z).to(self.device)
         log_prob = dist.log_prob(z)
