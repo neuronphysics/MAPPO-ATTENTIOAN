@@ -117,7 +117,7 @@ class SkillDynamics(nn.Module):
                  dynamics_orth_reg=True,
                  dynamics_l2_reg=False,
                  dynamics_spectral_norm=False,  # dynamics spectral norm
-                 variance=1,
+                 fix_variance=False,
                  base_kwargs=None):
         super().__init__()
 
@@ -129,7 +129,7 @@ class SkillDynamics(nn.Module):
         self.z_range = z_range
         self.z_type = z_type
         self.z_dist = D.Uniform(z_range[0], z_range[1])
-        self.variance = variance
+        self.fix_variance = fix_variance
         self._dynamics_reg_hiddens = dynamics_reg_hiddens
         self._dynamics_orth_reg = dynamics_orth_reg
         self._dynamics_spectral_norm = dynamics_spectral_norm
@@ -153,6 +153,10 @@ class SkillDynamics(nn.Module):
         self.means  = SlimFC(self.hiddens.output_size + input_dim, self.max_num_experts * self.obs_dim,
                              initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
                              apply_spectral_norm=self._dynamics_spectral_norm)  # nn.Linear(hidden_dim, self.num_experts * self.obs_dim)
+        if not fix_variance:
+            self.stddev  = SlimFC(self.hiddens.output_size + input_dim, self.max_num_experts * self.obs_dim,
+                                 initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
+                                 apply_spectral_norm=self._dynamics_spectral_norm)
         # print(self.hiddens._modules)
         # print(self.hiddens._modules['0']._model._modules['0'])
 
@@ -203,15 +207,17 @@ class SkillDynamics(nn.Module):
         eta = self.logits(combined_input)  # Adjusted for skip connection [batch,num_experts]
         means = self.means(combined_input)
         means = means.reshape(obs.shape[0], self.max_num_experts, self.obs_dim)
-        return eta, means
+        if not self.fix_variance:
+            stddevs = nn.Softplus()(self.stddev(x)) 
+        else:
+            stddevs = torch.ones_like(means)   # (num_components, obs_size)
+        return eta, means, stddevs
 
     def get_distribution(self, obs, z, rnn_hxs, masks, output_mask=False, output_feat=False, training=False):
-        eta, means = self.forward(obs, z, rnn_hxs, masks, output_mask, output_feat, training)
+        eta, means, diags = self.forward(obs, z, rnn_hxs, masks, output_mask, output_feat, training)
         eta = torch.softmax(eta, dim=-1)  # Apply softmax to get probabilities
         # Ensure that self.variance is positive
-        assert self.variance > 0, "Variance must be positive"
-
-        diags = torch.ones_like(means) * (self.variance + 1e-10)  # (num_components, obs_size)
+        
         mix = D.Categorical(eta)
         comp = D.Independent(D.Normal(means, diags), 1)
         gmm = D.MixtureSameFamily(mix, comp)
