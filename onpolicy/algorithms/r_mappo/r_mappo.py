@@ -14,11 +14,7 @@ class R_MAPPO():
     :param device: (torch.device) specifies the device to run on (cpu/gpu).
     """
 
-    def __init__(self,
-                 args,
-                 policy,
-                 device=torch.device("cpu")):
-
+    def __init__(self, args, policy, device=torch.device("cpu")):
         self.device = device
         self.tpdv = dict(dtype=torch.float32, device=device)
         self.policy = policy
@@ -42,7 +38,8 @@ class R_MAPPO():
         self._use_value_active_masks = args.use_value_active_masks
         self._use_policy_active_masks = args.use_policy_active_masks
         self._gardient_clipping_val = args.skill_dynamics_grad_norm
-        ###skill learing ####
+        self._use_attention = args.use_attention
+        # skill learning
         self._num_training_skill = args.num_training_skill_dynamics
 
         assert (self._use_popart and self._use_valuenorm) == False, (
@@ -108,8 +105,8 @@ class R_MAPPO():
         :return imp_weights: (torch.Tensor) importance sampling weights.
         """
         share_obs_batch, obs_batch, next_obs_batch, skills_batch, rnn_states_batch, rnn_states_critic_batch, \
-            actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, \
-            old_action_log_probs_batch, adv_targ, available_actions_batch = sample
+        actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, \
+        old_action_log_probs_batch, adv_targ, available_actions_batch = sample
 
         old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
         adv_targ = check(adv_targ).to(**self.tpdv)
@@ -150,7 +147,7 @@ class R_MAPPO():
             actor_grad_norm = nn.utils.clip_grad_norm_(self.policy.actor.parameters(), self.max_grad_norm)
         else:
             actor_grad_norm = get_gard_norm(self.policy.actor.parameters())
-        ### New 
+        # new added
         skill_dynamics_loss = []
         skill_discriminator_loss = []
         for _ in range(self._num_training_skill):
@@ -168,10 +165,11 @@ class R_MAPPO():
             # Optimize skill discriminator
 
             discriminator_loss.backward()
-            nn.utils.clip_grad_norm_(self.policy.actor.skill_discriminator.parameters(), max_norm=self._gardient_clipping_val)
+            nn.utils.clip_grad_norm_(self.policy.actor.skill_discriminator.parameters(),
+                                     max_norm=self._gardient_clipping_val)
             self.policy.actor.skill_discriminator.discriminator_opt.step()
 
-        ##new
+        # new added
         self.policy.actor_optimizer.step()
 
         # critic update
@@ -216,20 +214,23 @@ class R_MAPPO():
         train_info['actor_grad_norm'] = 0
         train_info['critic_grad_norm'] = 0
         train_info['ratio'] = 0
-        train_info['skill_loss'] = 0  ##new
-        train_info['skill_discriminator_loss'] = 0  ##new
+        # new added
+        train_info['skill_loss'] = 0
+        train_info['skill_discriminator_loss'] = 0
 
         for _ in range(self.ppo_epoch):
             if self._use_recurrent_policy:
                 data_generator = buffer.recurrent_generator(advantages, self.num_mini_batch, self.data_chunk_length)
             elif self._use_naive_recurrent:
                 data_generator = buffer.naive_recurrent_generator(advantages, self.num_mini_batch)
+            # elif self._use_attention:
+            #     data_generator = buffer.recurrent_generator(advantages, self.num_mini_batch, self.data_chunk_length)
             else:
                 data_generator = buffer.feed_forward_generator(advantages, self.num_mini_batch)
 
             for sample in data_generator:
-                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, dynamics_loss, skill_discriminator_loss \
-                    = self.ppo_update(sample, update_actor)
+                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, dynamics_loss, \
+                skill_discriminator_loss = self.ppo_update(sample, update_actor)
 
                 dynamics_loss = torch.tensor(dynamics_loss, device=self.device)
                 skill_discriminator_loss = torch.tensor(skill_discriminator_loss, device=self.device)
@@ -240,8 +241,9 @@ class R_MAPPO():
                 train_info['actor_grad_norm'] += actor_grad_norm
                 train_info['critic_grad_norm'] += critic_grad_norm
                 train_info['ratio'] += imp_weights.mean()
-                train_info['skill_loss'] += dynamics_loss.mean()  ##new
-                train_info['skill_discriminator_loss'] += skill_discriminator_loss.mean()  ##new
+                # new added
+                train_info['skill_loss'] += dynamics_loss.mean()
+                train_info['skill_discriminator_loss'] += skill_discriminator_loss.mean()
 
         num_updates = self.ppo_epoch * self.num_mini_batch
 
@@ -253,9 +255,11 @@ class R_MAPPO():
     def prep_training(self):
         self.policy.actor.train()
         self.policy.critic.train()
-        self.policy.actor.dynamics.train()  ###new
+        # new added
+        self.policy.actor.dynamics.train()
 
     def prep_rollout(self):
         self.policy.actor.eval()
         self.policy.critic.eval()
-        self.policy.actor.dynamics.eval()  ###new
+        # new added
+        self.policy.actor.dynamics.eval()
