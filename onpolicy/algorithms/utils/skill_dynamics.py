@@ -8,10 +8,9 @@ import abc
 from functools import reduce
 from onpolicy.algorithms.utils.cnn import Flatten
 from typing import Any, Dict, List, Tuple, Union, Optional
+from onpolicy.algorithms.utils.transporter import CNNKeyPointsBase as CNNBase
 
 TensorType = Any
-
-
 
 
 def get_activation_fn(name: Optional[str] = None):
@@ -109,8 +108,6 @@ class SkillDynamics(nn.Module):
     def __init__(self,
                  args,
                  obs_shape,
-                 hidden_dim,
-                 num_hiddens=2,
                  z_range=(-1, 1),
                  device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
                  z_type='cont',
@@ -120,7 +117,8 @@ class SkillDynamics(nn.Module):
                  dynamics_orth_reg=True,
                  dynamics_l2_reg=False,
                  dynamics_spectral_norm=False,  # dynamics spectral norm
-                 variance=1):
+                 fix_variance=False,
+                 base_kwargs=None):
         super().__init__()
 
         self.z_dim = args.skill_dim
@@ -131,45 +129,34 @@ class SkillDynamics(nn.Module):
         self.z_range = z_range
         self.z_type = z_type
         self.z_dist = D.Uniform(z_range[0], z_range[1])
-        self.variance = variance
+        self.fix_variance = fix_variance
         self._dynamics_reg_hiddens = dynamics_reg_hiddens
         self._dynamics_orth_reg = dynamics_orth_reg
         self._dynamics_spectral_norm = dynamics_spectral_norm
         self._dynamics_l2_reg = dynamics_l2_reg
         self.device = device
-        self.flat_tool = nn.Flatten()
 
         # Assuming obs_shape is something like (batch_size, dim1, dim2, ...)
         self.obs_dim = reduce(lambda x, y: x * y, obs_shape[0:])
+        self.hiddens = CNNBase(obs_shape[0], **base_kwargs)
 
-        input_dim = self.obs_dim + self.z_dim
+        input_dim = self.hiddens.output_size + self.z_dim
         print(f"size of observational skill dynamics input {self.obs_dim}")
         print(f'dynamics input dim: {input_dim}')
+        self.bn_in = nn.BatchNorm2d(self.obs_dim)
+        self.bn_target = nn.BatchNorm2d(self.obs_dim, affine=False)
 
-        self.bn_in = nn.BatchNorm1d(self.obs_dim)
-        self.bn_target = nn.BatchNorm1d(self.obs_dim, affine=False)
-        activation_fn = nn.LeakyReLU(negative_slope=0.2)
-
-        hiddens = [SlimFC(input_dim, hidden_dim, activation_fn=activation_fn, 
-                          use_batch_normalization=use_batch_normalization, 
-                          initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
-                          apply_spectral_norm=self._dynamics_spectral_norm)]
-
-        for _ in range(num_hiddens - 1):
-            hiddens.append(SlimFC(hidden_dim, hidden_dim, activation_fn=activation_fn, 
-                                  use_batch_normalization=use_batch_normalization,
-                                  initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
-                                  use_skip_connection = True,
-                                  apply_spectral_norm=self._dynamics_spectral_norm))
-        self.hiddens = nn.Sequential(*hiddens)
-
-        self.logits = SlimFC(hidden_dim + input_dim, self.max_num_experts,
+        self.logits = SlimFC(self.hiddens.output_size + input_dim, self.max_num_experts,
                              initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
                              apply_spectral_norm=self._dynamics_spectral_norm)  # nn.Linear(hidden_dim, self.num_experts)
 
-        self.means = SlimFC(hidden_dim + input_dim, self.max_num_experts * self.obs_dim,
-                            initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
-                            apply_spectral_norm=self._dynamics_spectral_norm)  # nn.Linear(hidden_dim, self.num_experts * self.obs_dim)
+        self.means  = SlimFC(self.hiddens.output_size + input_dim, self.max_num_experts * self.obs_dim,
+                             initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
+                             apply_spectral_norm=self._dynamics_spectral_norm)  # nn.Linear(hidden_dim, self.num_experts * self.obs_dim)
+        if not fix_variance:
+            self.stddev  = SlimFC(self.hiddens.output_size + input_dim, self.max_num_experts * self.obs_dim,
+                                 initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
+                                 apply_spectral_norm=self._dynamics_spectral_norm)
         # print(self.hiddens._modules)
         # print(self.hiddens._modules['0']._model._modules['0'])
 
@@ -202,7 +189,7 @@ class SkillDynamics(nn.Module):
                 l2_loss = l2_loss + (0.5 * reg * torch.sum(torch.pow(param, 2)))
         return torch.sum(l2_loss)
 
-    def forward(self, obs, z, training=False):
+    def forward(self, obs, z, rnn_hxs, masks, output_mask, output_feat, training=False):
 
         # obs = batch_norm(obs)
         # Debugging: Print shapes to verify dimensions
@@ -214,35 +201,37 @@ class SkillDynamics(nn.Module):
         else:
             z = z.to(self.device)
         inp = torch.cat([norm_obs, z], dim=-1)
-        x = self.hiddens(inp)
+        x = self.hiddens(inp, rnn_hxs, masks, output_mask=output_mask, output_feat=output_feat)
         combined_input = torch.cat([inp, x], dim=-1) #skip connection
         # https://luiarthur.github.io/TuringBnpBenchmarks/dpsbgmm
         eta = self.logits(combined_input)  # Adjusted for skip connection [batch,num_experts]
         means = self.means(combined_input)
         means = means.reshape(obs.shape[0], self.max_num_experts, self.obs_dim)
-        return eta, means
+        if not self.fix_variance:
+            stddevs = nn.Softplus()(self.stddev(x)) 
+        else:
+            stddevs = torch.ones_like(means)   # (num_components, obs_size)
+        return eta, means, stddevs
 
-    def get_distribution(self, obs, z, training=False):
-        eta, means = self.forward(obs, z, training)
+    def get_distribution(self, obs, z, rnn_hxs, masks, output_mask=False, output_feat=False, training=False):
+        eta, means, diags = self.forward(obs, z, rnn_hxs, masks, output_mask, output_feat, training)
         eta = torch.softmax(eta, dim=-1)  # Apply softmax to get probabilities
         # Ensure that self.variance is positive
-        assert self.variance > 0, "Variance must be positive"
-
-        diags = torch.ones_like(means) * (self.variance + 1e-10)  # (num_components, obs_size)
+        
         mix = D.Categorical(eta)
         comp = D.Independent(D.Normal(means, diags), 1)
         gmm = D.MixtureSameFamily(mix, comp)
         return gmm
 
-    def get_log_prob(self, obs, z, next_obs, training=False):
-        gmm = self.get_distribution(obs, z, training)
+    def get_log_prob(self, obs, z, next_obs, rnn_hxs, masks, output_mask, output_feat, training=False):
+        gmm = self.get_distribution(obs, z, rnn_hxs, masks, output_mask, output_feat, training)
         self.bn_target.train(mode=training)
 
         next_obs = self.process_obs(next_obs)
         norm_next_obs = self.bn_target(next_obs)
         return gmm.log_prob(norm_next_obs)
 
-    def _calculate_intrinsic_rewards(self, obs, z, next_obs, weights=None):
+    def _calculate_intrinsic_rewards(self, obs, z, next_obs, rnn_hxs, masks, output_mask=False, output_feat=False, weights=None):
         num_reps = self.num_reps if self.z_type == 'cont' else self.z_dim
         if self.z_type == 'cont':
             # alt_obs = obs.repeat(num_reps, 1)  # [Batch_size*num_reps, obs_dim]
@@ -263,9 +252,9 @@ class SkillDynamics(nn.Module):
         # implement https://github.com/google-research/dads/blob/abc37f532c26658e41ae309b646e8963bd7a8676/unsupervised_skill_learning/skill_discriminator.py#L108C1-L114C60
         alt_skill = torch.from_numpy(alt_skill)
 
-        log_prob = self.get_log_prob(obs, z, next_obs, training=False)  # [Batch_size]
+        log_prob = self.get_log_prob(obs, z, next_obs, rnn_hxs, masks, output_mask, output_feat, training=False)  # [Batch_size]
         log_prob = log_prob.reshape(obs.shape[0] * (1 if not self.share_policy else obs.shape[1]), 1)
-        alt_log_prob = self.get_log_prob(alt_obs, alt_skill, alt_next_obs, training=False)  # [Batch_size*num_reps]
+        alt_log_prob = self.get_log_prob(alt_obs, alt_skill, alt_next_obs, rnn_hxs, masks, output_mask, output_feat, training=False)  # [Batch_size*num_reps]
 
         if weights is not None:
             diff = (alt_log_prob - log_prob) * weights
@@ -277,9 +266,10 @@ class SkillDynamics(nn.Module):
         return reward, {'log_prob': log_prob, 'alt_log_prob': alt_log_prob,
                         'num_higher_prob': ((-diff) >= 0).sum().item()}
 
-    def compute_loss(self, next_obs, obs, z):
+    def compute_loss(self, next_obs, obs, z, rnn_hxs, masks, output_mask=False, output_feat=False):
         next_dynamics_obs = next_obs - obs
-        log_prob = self.get_log_prob(obs, z, next_dynamics_obs, training=True)
+        log_prob = self.get_log_prob(obs, z, next_dynamics_obs, rnn_hxs, masks, output_mask=output_mask,
+                                                   output_feat=output_feat, training=True)
         dynamics_loss = -torch.mean(log_prob)
         orth_loss = self.orthogonal_regularization()
         l2_loss = self.l2_regularization()
@@ -298,7 +288,7 @@ class SkillDynamics(nn.Module):
                 thread_num, agent_num, h, w, c = obs.shape
                 obs = torch.reshape(obs, (thread_num * agent_num, h, w, c))
 
-        return self.flat_tool(obs)
+        return obs
 
 
 class SkillDiscriminator(nn.Module):
@@ -307,36 +297,24 @@ class SkillDiscriminator(nn.Module):
     def __init__(self,
                  args,
                  obs_shape,
-                 hidden_dim,
-                 num_hiddens=2,
                  device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
                  use_batch_normalization=True,
-                 discriminator_spectral_norm=False):
+                 discriminator_spectral_norm=False,
+                 base_kwargs=None):
         super(SkillDiscriminator, self).__init__()
         self.obs_dim = reduce(lambda x, y: x * y, obs_shape[0:])
         self.skill_dim = args.skill_dim
         self.device = device
-        self.flat_tool = nn.Flatten()
-        self.bn_in = nn.BatchNorm1d(self.obs_dim)
+        self.bn_in = nn.BatchNorm2d(self.obs_dim)
 
-        input_dim = self.obs_dim
-        activation_fn = nn.LeakyReLU(negative_slope=0.2)
 
-        hiddens = [SlimFC(input_dim, hidden_dim, activation_fn=activation_fn,
-                          initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
-                          apply_spectral_norm=discriminator_spectral_norm)]
+        self.hiddens = CNNBase(obs_shape[0], **base_kwargs)
 
-        for _ in range(num_hiddens - 1):
-            hiddens.append(SlimFC(hidden_dim, hidden_dim, activation_fn=activation_fn,
-                                  initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
-                                  apply_spectral_norm=discriminator_spectral_norm))
-        self.hiddens = nn.Sequential(*hiddens)
-
-        self.std = SlimFC(hidden_dim, self.skill_dim,
+        self.std = SlimFC(self.hiddens.output_size, self.skill_dim,
                           initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
                           apply_spectral_norm=discriminator_spectral_norm)
 
-        self.means = SlimFC(hidden_dim, self.skill_dim,
+        self.means = SlimFC(self.hiddens.output_size, self.skill_dim,
                             initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
                             apply_spectral_norm=discriminator_spectral_norm)
 
@@ -347,19 +325,19 @@ class SkillDiscriminator(nn.Module):
         self.discriminator_opt = torch.optim.Adam(self.parameters(), lr=self._discriminator_lr, eps=args.opti_eps,
                                                   weight_decay=args.weight_decay)
 
-    def forward(self, obs, training=False):
+    def forward(self, obs, rnn_hxs, masks, output_mask, output_feat, training):
         if isinstance(obs, np.ndarray):
             obs = torch.from_numpy(obs).to(self.device)
-        obs = self.flat_tool(obs)
+        
         self.bn_in.train(mode=training)
         norm_obs = self.bn_in(obs)
-        x = self.hiddens(norm_obs)
+        x = self.hiddens(norm_obs, rnn_hxs, masks, output_mask=output_mask, output_feat=output_feat)
         eta = self.std(x)  # [batch,num_experts]
         mean = self.means(x)
         return eta, mean
 
-    def get_distribution(self, obs, training=False):
-        stddev, mean = self.forward(obs, training)
+    def get_distribution(self, obs, rnn_hxs, masks, output_mask=False, output_feat=False, training=False):
+        stddev, mean = self.forward(obs, rnn_hxs, masks, output_mask=output_mask, output_feat=output_feat, training=training)
         # Ensure that stddev and mean are tensors
         assert torch.is_tensor(stddev), "stddev must be a torch.Tensor"
         assert torch.is_tensor(mean), "mean must be a torch.Tensor"
@@ -371,14 +349,14 @@ class SkillDiscriminator(nn.Module):
         return D.Independent(D.Normal(mean, positive_stddev), 1)
 
 
-    def get_log_prob(self, obs, z, training=False):
-        dist = self.get_distribution(obs, training)
+    def get_log_prob(self, obs, z, rnn_hxs, masks, output_mask=False, output_feat=False, training=False):
+        dist = self.get_distribution(obs, rnn_hxs, masks, output_mask=output_mask, output_feat=output_feat, training=training)
         if isinstance(z, np.ndarray):
             z = torch.from_numpy(z).to(self.device)
         log_prob = dist.log_prob(z)
         return log_prob
 
-    def compute_loss(self, obs, z):
-        log_prob = self.get_log_prob(obs, z, training=True)
+    def compute_loss(self, obs, z, rnn_hxs, masks, output_mask, output_feat):
+        log_prob = self.get_log_prob(obs, z, rnn_hxs, masks, output_mask, output_feat, training=True)
         loss = -torch.mean(log_prob)
         return loss

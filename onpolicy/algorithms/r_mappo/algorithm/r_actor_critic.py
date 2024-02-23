@@ -134,7 +134,7 @@ class R_Actor(nn.Module):
                 actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
                 rnn_states = rnn_states.permute(1, 0, 2)
 
-        skills = self.skill_discriminator.get_distribution(obs).sample()
+        skills = self.skill_discriminator.get_distribution(obs, rnn_states, mask).sample()
 
         if self.use_attention:
             actor_features = torch.squeeze(actor_features, dim=0)
@@ -169,7 +169,7 @@ class R_Actor(nn.Module):
             active_masks = check(active_masks).to(**self.tpdv)
 
         actor_features = self.base(obs)
-        skills = self.skill_discriminator.get_distribution(obs).sample()
+        skills = self.skill_discriminator.get_distribution(obs, rnn_states, mask).sample()
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy or self.use_attention:
             actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
