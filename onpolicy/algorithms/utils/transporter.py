@@ -229,10 +229,10 @@ class CNNKeyPointsBase(NNBase):
                                constant_(x, 0), nn.init.calculate_gain('relu'))
 
         if self.feat_from_selfsup_attention or self.feat_add_selfsup_attention:
-            self._feat_encoder = FeatureEncoder(num_inputs=1,
+            self._feat_encoder = FeatureEncoder(num_inputs=3,
                                                 use_layer_norm=self.selfsup_attention_feat_use_ln,
                                                 use_instance_norm=self.selfsup_attention_use_instance_norm)
-            keypoint_encoder = FeatureEncoder(num_inputs=1,
+            keypoint_encoder = FeatureEncoder(num_inputs=3,
                                               use_instance_norm=self.selfsup_attention_use_instance_norm,
                                               use_layer_norm=not self.selfsup_attention_use_instance_norm
                                               )
@@ -286,10 +286,10 @@ class CNNKeyPointsBase(NNBase):
         feat_channels = 32
         if not self.feat_from_selfsup_attention:
             self.convs_1 = nn.Sequential(
-                init_(nn.Conv2d(num_inputs, 32, 8, stride=1)),
+                init_(nn.Conv2d(num_inputs, 32, 8, stride=4)),
                 nn.ReLU())
             self.convs_2 = nn.Sequential(
-                init_(nn.Conv2d(32, 64, 4, stride=1)), nn.ReLU())
+                init_(nn.Conv2d(32, 64, 4, stride=4)), nn.ReLU())
             self.convs_3 = nn.Sequential(
                 init_(nn.Conv2d(64, 32, 3, stride=1)), nn.ReLU())
 

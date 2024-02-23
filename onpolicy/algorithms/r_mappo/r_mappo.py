@@ -4,7 +4,7 @@ import torch.nn as nn
 from onpolicy.utils.util import get_gard_norm, huber_loss, mse_loss
 from onpolicy.utils.valuenorm import ValueNorm
 from onpolicy.algorithms.utils.util import check
-
+from onpolicy.algorithms.utils import config
 
 class R_MAPPO():
     """
@@ -150,14 +150,17 @@ class R_MAPPO():
         # new added
         skill_dynamics_loss = []
         skill_discriminator_loss = []
+        skill_selfsup_attention_loss = []
         for _ in range(self._num_training_skill):
             self.policy.actor.dynamics.dynamics_opt.zero_grad()
             self.policy.actor.skill_discriminator.discriminator_opt.zero_grad()
+            selfsup_attention_loss, output, image_b_keypoints_maps = self.policy.actor.dynamics.hiddens._train_selfsup_attention( obs_batch, next_obs_batch, config.SELFSUP_ATTENTION)
             dynamics_loss = self.policy.actor.dynamics.compute_loss(next_obs_batch, obs_batch, skills_batch, rnn_states_batch, masks_batch )
             discriminator_loss = self.policy.actor.skill_discriminator.compute_loss(obs_batch, skills_batch, rnn_states_batch, masks_batch)
             skill_dynamics_loss.append(dynamics_loss)
             skill_discriminator_loss.append(discriminator_loss)
-
+            skill_selfsup_attention_loss.append(selfsup_attention_loss)
+            selfsup_attention_loss.backward()
             dynamics_loss.backward()
             nn.utils.clip_grad_norm_(self.policy.actor.dynamics.parameters(), max_norm=self._gardient_clipping_val)
             self.policy.actor.dynamics.dynamics_opt.step()
@@ -169,6 +172,7 @@ class R_MAPPO():
                                      max_norm=self._gardient_clipping_val)
             self.policy.actor.skill_discriminator.discriminator_opt.step()
 
+        
         # new added
         self.policy.actor_optimizer.step()
 
@@ -186,7 +190,7 @@ class R_MAPPO():
 
         self.policy.critic_optimizer.step()
 
-        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, skill_dynamics_loss, skill_discriminator_loss
+        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, skill_dynamics_loss, skill_discriminator_loss, skill_selfsup_attention_loss
 
     def train(self, buffer, update_actor=True):
         """
@@ -217,6 +221,7 @@ class R_MAPPO():
         # new added
         train_info['skill_loss'] = 0
         train_info['skill_discriminator_loss'] = 0
+        train_info['keypoint_loss'] = 0
 
         for _ in range(self.ppo_epoch):
             if self._use_recurrent_policy or self._use_attention:
@@ -231,11 +236,11 @@ class R_MAPPO():
 
             for sample in data_generator:
                 value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, dynamics_loss, \
-                skill_discriminator_loss = self.ppo_update(sample, update_actor)
+                skill_discriminator_loss, keypoints_loss = self.ppo_update(sample, update_actor)
 
                 dynamics_loss = torch.tensor(dynamics_loss, device=self.device)
                 skill_discriminator_loss = torch.tensor(skill_discriminator_loss, device=self.device)
-
+                keypoints_loss = torch.tensor(keypoints_loss, device=self.device)
                 train_info['value_loss'] += value_loss.item()
                 train_info['policy_loss'] += policy_loss.item()
                 train_info['dist_entropy'] += dist_entropy.item()
@@ -245,6 +250,7 @@ class R_MAPPO():
                 # new added
                 train_info['skill_loss'] += dynamics_loss.mean()
                 train_info['skill_discriminator_loss'] += skill_discriminator_loss.mean()
+                train_info['keypoint_loss'] += keypoints_loss.mean()
 
         num_updates = self.ppo_epoch * self.num_mini_batch
 
