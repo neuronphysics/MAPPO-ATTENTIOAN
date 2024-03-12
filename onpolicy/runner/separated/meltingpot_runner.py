@@ -176,7 +176,9 @@ class MeltingpotRunner(Runner):
             intrinsic_reward, dict_log = self.trainer[agent_id].policy.actor.dynamics._calculate_intrinsic_rewards(
                 self.buffer[agent_id].obs[step],
                 skills_dynamics,
-                self.buffer[agent_id].next_obs[step])
+                self.buffer[agent_id].next_obs[step],
+                self.buffer[agent_id].rnn_states[step],
+                self.buffer[agent_id].masks[step])
 
             values.append(_t2n(value))
             action = _t2n(action)

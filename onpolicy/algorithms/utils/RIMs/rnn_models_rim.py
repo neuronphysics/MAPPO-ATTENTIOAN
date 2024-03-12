@@ -75,6 +75,7 @@ class RNNModel(nn.Module):
         for i in range(nlayers - 1):
             self.dropout_lst.append(nn.Dropout(dropout))
 
+
         self.bc_lst = nn.ModuleList(self.bc_lst)
         self.dropout_lst = nn.ModuleList(self.dropout_lst)
 
@@ -82,11 +83,10 @@ class RNNModel(nn.Module):
         if False:
             self.decoder = nn.Linear(nhid[-1], ntoken)
             if tie_weights:
-            	if nhid[-1] != ninp:
-            		raise ValueError('When using the tied flag, nhid must be equal to emsize')
-            	else:
-            		self.decoder.weight = self.encoder.weight
-
+                if nhid[-1] != ninp:
+                    raise ValueError('When using the tied flag, nhid must be equal to emsize')
+                else:
+                    self.decoder.weight = self.encoder.weight
         self.init_weights()
 
 
@@ -98,8 +98,9 @@ class RNNModel(nn.Module):
         print('-------Done Initializing Module----------')
 
     def init_weights(self):
-        initrange = 0.1
-        self.encoder.weight.data.uniform_(-initrange, initrange)
+        #initrange = 0.1
+        #self.encoder.weight.data.uniform_(-initrange, initrange)
+        nn.init.xavier_uniform_(self.encoder.weight)
         if not self.use_adaptive_softmax and False:
             self.decoder.bias.data.zero_()
             self.decoder.weight.data.uniform_(-initrange, initrange)

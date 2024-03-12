@@ -40,7 +40,23 @@ class BlockLSTM(nn.Module):
         self.lstm = nn.LSTMCell(ninp, nhid).to(self.device)
         self.nhid = nhid
         self.ninp = ninp
-
+        self.initialize_weights()
+        self.to(self.device)
+        
+    def initialize_weights(self):
+        # Orthogonal initialization for recurrent weights
+        for name, param in self.lstm.named_parameters():
+            if 'weight_hh' in name:
+                nn.init.orthogonal_(param.data)
+            elif 'weight_ih' in name:
+                nn.init.xavier_uniform_(param.data)
+            elif 'bias' in name:
+                nn.init.constant_(param.data, 0)
+                # Setting forget gate bias to 1
+                n = param.size(0)
+                start, end = n // 4, n // 2
+                param.data[start:end].fill_(1.)
+        
     def blockify_params(self):
         pl = self.lstm.parameters()
 
@@ -79,8 +95,24 @@ class SharedBlockLSTM(nn.Module):
         self.ninp = ninp
 
         self.gll_write = GroupLinearLayer(self.m,16, self.n_templates, device=self.device)
-        self.gll_read = GroupLinearLayer(self.m,16,1, device=self.device)
+        self.gll_read = GroupLinearLayer(self.m, 16, 1, device=self.device)
+        
+        self.initialize_templates()
         self.to(self.device)
+
+    def initialize_templates(self):
+        for template in self.templates:
+            for name, param in template.named_parameters():
+                if 'weight_hh' in name:
+                    nn.init.orthogonal_(param.data)
+                elif 'weight_ih' in name:
+                    nn.init.xavier_uniform_(param.data)
+                elif 'bias' in name:
+                    nn.init.constant_(param.data, 0)
+                    # Setting forget gate bias to 1
+                    n = param.size(0)
+                    start, end = n // 4, n // 2
+                    param.data[start:end].fill_(1.)
 
     def blockify_params(self):
 

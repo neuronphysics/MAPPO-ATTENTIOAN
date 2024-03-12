@@ -90,8 +90,9 @@ class BlocksCore(nn.Module):
 
 
         rule_config = {'rule_time_steps': rule_time_steps, 'num_rules': num_rules,
-                    'rule_emb_dim': 64, 'rule_query_dim':32,
-                    'rule_value_dim':64, 'rule_key_dim':32, 'rule_heads':4, 'rule_dropout':0.5}
+                       'rule_emb_dim': 64, 'rule_query_dim':32,
+                       'rule_value_dim':64, 'rule_key_dim':32, 
+                       'rule_heads':4, 'rule_dropout':0.5}
         self.use_rules = rule_config is not None and rule_config['num_rules'] > 0
         if rule_config is not None and rule_config['num_rules'] > 0:
             if True:

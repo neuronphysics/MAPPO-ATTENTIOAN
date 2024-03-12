@@ -103,7 +103,9 @@ class RNNModel(nn.Module):
 
     def init_weights(self):
         initrange = 0.1
-        self.encoder.weight.data.uniform_(-initrange, initrange)
+        #self.encoder.weight.data.uniform_(-initrange, initrange)
+        nn.init.xavier_uniform_(self.encoder.weight)
+
         #self.rule_emb.weight.data.uniform_(-initrange, initrange)
         if not self.use_adaptive_softmax:
             self.decoder.bias.data.zero_()
@@ -111,7 +113,8 @@ class RNNModel(nn.Module):
 
     def init_blocks_weights(self):
         initrange = 0.1
-        self.encoder.weight.data.uniform_(-initrange, initrange)
+        #self.encoder.weight.data.uniform_(-initrange, initrange)
+        nn.init.xavier_uniform_(self.encoder.weight)
         #self.rule_emb.weight.data.uniform_(-initrange, initrange)
         if not self.use_adaptive_softmax:
             self.decoder.bias.data.zero_()

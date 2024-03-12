@@ -9,14 +9,18 @@ from __future__ import print_function
 from collections import OrderedDict
 import os
 import logging
+
+import numpy
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import scipy
 from .util import init, calculate_conv_params
+
 BN_MOMENTUM = 0.1
 logger = logging.getLogger(__name__)
+
 
 class SaliencyMapMSELoss(nn.Module):
     def __init__(self, use_target_weight, loss_weight=1.0):
@@ -74,7 +78,7 @@ def init(module, weight_init, bias_init, gain=1):
 
 class Flatten(nn.Module):
     def forward(self, x):
-        return x.view(x.size(0), -1)
+        return x.contiguous().view(x.size(0), -1)
 
 
 class NNBase(nn.Module):
@@ -165,22 +169,22 @@ class NNBase(nn.Module):
 
 
 class CNNKeyPointsBase(NNBase):
-    def __init__(self, 
-                 num_inputs, 
-                 recurrent=False, 
+    def __init__(self,
+                 obs_shape,
+                 recurrent=False,
                  hidden_size=512,
-                 feat_from_selfsup_attention=False,
+                 feat_from_selfsup_attention=True,
                  feat_add_selfsup_attention=False,
                  feat_mul_selfsup_attention_mask=False,
-                 selfsup_attention_num_keypoints=7,
-                 selfsup_attention_gauss_std=0.1,
-                 selfsup_attention_fix=True,
-                 selfsup_attention_fix_keypointer=False,
-                 selfsup_attention_pretrain='',
-                 selfsup_attention_keyp_maps_pool=False,
-                 selfsup_attention_image_feat_only=False,
-                 selfsup_attention_feat_masked=False,
-                 selfsup_attention_feat_masked_residual=False,
+                 sup_attention_num_keypoints=7,
+                 sup_attention_gauss_std=0.1,
+                 sup_attention_fix=False,
+                 sup_attention_fix_keypointer=False,
+                 sup_attention_pretrain='',
+                 sup_attention_keyp_maps_pool=False,
+                 sup_attention_image_feat_only=False,
+                 sup_attention_feat_masked=False,
+                 sup_attention_feat_masked_residual=False,
                  selfsup_attention_feat_load_pretrained=True,
                  use_layer_norm=False,
                  selfsup_attention_keyp_cls_agnostic=False,
@@ -189,7 +193,7 @@ class CNNKeyPointsBase(NNBase):
                  bottom_up_form_objects=False,
                  bottom_up_form_num_of_objects=10,
                  gaussian_std=0.1,
-                 train_selfsup_attention=False,
+                 train_selfsup_attention=True,
                  block_selfsup_attention_grad=True,
                  sep_bg_fg_feat=False,
                  mask_threshold=-1.,
@@ -201,15 +205,15 @@ class CNNKeyPointsBase(NNBase):
         self.feat_mul_selfsup_attention_mask = feat_mul_selfsup_attention_mask
         self.feat_from_selfsup_attention = feat_from_selfsup_attention
         self.feat_add_selfsup_attention = feat_add_selfsup_attention
-        self.selfsup_attention_num_keypoints = selfsup_attention_num_keypoints
-        self.selfsup_attention_gauss_std = selfsup_attention_gauss_std
-        self.selfsup_attention_pretrain = selfsup_attention_pretrain
-        self.selfsup_attention_fix = selfsup_attention_fix
-        self.selfsup_attention_fix_keypointer = selfsup_attention_fix_keypointer
-        self.selfsup_attention_keyp_maps_pool = selfsup_attention_keyp_maps_pool
-        self.selfsup_attention_image_feat_only = selfsup_attention_image_feat_only
-        self.selfsup_attention_feat_masked = selfsup_attention_feat_masked
-        self.selfsup_attention_feat_masked_residual = selfsup_attention_feat_masked_residual
+        self.selfsup_attention_num_keypoints = sup_attention_num_keypoints
+        self.selfsup_attention_gauss_std = sup_attention_gauss_std
+        self.selfsup_attention_pretrain = sup_attention_pretrain
+        self.selfsup_attention_fix = sup_attention_fix
+        self.selfsup_attention_fix_keypointer = sup_attention_fix_keypointer
+        self.selfsup_attention_keyp_maps_pool = sup_attention_keyp_maps_pool
+        self.selfsup_attention_image_feat_only = sup_attention_image_feat_only
+        self.selfsup_attention_feat_masked = sup_attention_feat_masked
+        self.selfsup_attention_feat_masked_residual = sup_attention_feat_masked_residual
         self.selfsup_attention_feat_load_pretrained = selfsup_attention_feat_load_pretrained
         self.use_layer_norm = use_layer_norm
         self.selfsup_attention_keyp_cls_agnostic = selfsup_attention_keyp_cls_agnostic
@@ -229,10 +233,10 @@ class CNNKeyPointsBase(NNBase):
                                constant_(x, 0), nn.init.calculate_gain('relu'))
 
         if self.feat_from_selfsup_attention or self.feat_add_selfsup_attention:
-            self._feat_encoder = FeatureEncoder(num_inputs=3,
+            self._feat_encoder = FeatureEncoder(num_inputs=3, obs_shape=obs_shape,
                                                 use_layer_norm=self.selfsup_attention_feat_use_ln,
                                                 use_instance_norm=self.selfsup_attention_use_instance_norm)
-            keypoint_encoder = FeatureEncoder(num_inputs=3,
+            keypoint_encoder = FeatureEncoder(num_inputs=3, obs_shape=obs_shape,
                                               use_instance_norm=self.selfsup_attention_use_instance_norm,
                                               use_layer_norm=not self.selfsup_attention_use_instance_norm
                                               )
@@ -245,7 +249,7 @@ class CNNKeyPointsBase(NNBase):
                 assert not self.selfsup_attention_fix, 'selfsup_attention_fix should be False if training needed'
                 assert not self.selfsup_attention_fix_keypointer, \
                     'selfsup_attention_fix_keypointer should be False if training needed'
-                decoder = Decoder(in_channels=32, out_channels=1,
+                decoder = Decoder(in_channels=32, out_channels=3, obs_shape=obs_shape,
                                   use_layer_norm=self.selfsup_attention_feat_use_ln,
                                   use_instance_norm=self.selfsup_attention_use_instance_norm,
                                   with_sigmoid=False)
@@ -286,16 +290,15 @@ class CNNKeyPointsBase(NNBase):
         feat_channels = 32
         if not self.feat_from_selfsup_attention:
             self.convs_1 = nn.Sequential(
-                init_(nn.Conv2d(num_inputs, 32, 8, stride=4)),
-                nn.ReLU())
+                init_(nn.Conv2d(obs_shape[2], 32, 3, stride=1, padding=1)), nn.ReLU())
             self.convs_2 = nn.Sequential(
-                init_(nn.Conv2d(32, 64, 4, stride=4)), nn.ReLU())
+                init_(nn.Conv2d(32, 64, 3, stride=1, padding=1)), nn.ReLU())
             self.convs_3 = nn.Sequential(
-                init_(nn.Conv2d(64, 32, 3, stride=1)), nn.ReLU())
+                init_(nn.Conv2d(64, 32, 3, stride=1, padding=1)), nn.ReLU())
 
         self.fc = nn.Sequential(
             Flatten(),
-            init_(nn.Linear(feat_channels * 7 * 7, hidden_size)), nn.ReLU())
+            init_(nn.Linear(feat_channels * obs_shape[0] * obs_shape[1], hidden_size)), nn.ReLU())
 
         init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
                                constant_(x, 0))
@@ -303,9 +306,7 @@ class CNNKeyPointsBase(NNBase):
         self.critic_linear = init_(nn.Linear(hidden_size, 1))
         self.train()
 
-    def forward(self, inputs, rnn_hxs, masks, output_mask=False,
-                output_feat=False,
-                ):
+    def forward(self, inputs, rnn_hxs, masks, output_mask=False, output_feat=False):
         inputs_normalized = inputs / 255.0
 
         meta = {}
@@ -313,7 +314,8 @@ class CNNKeyPointsBase(NNBase):
         meta['input'] = inputs_normalized[:, -1:]
 
         if self.feat_from_selfsup_attention or self.feat_add_selfsup_attention:
-            inputs_frame = inputs_normalized[:, -1:]
+            # inputs_frame = inputs_normalized[:, -1:]
+            inputs_frame = inputs_normalized
             feat = self._feat_encoder(inputs_frame)  # (batch_size x 4) x 64 x h x w
             keypoints_centers, keypoints_maps = self._keypointer(inputs_frame)
             if self.block_selfsup_attention_grad:
@@ -352,6 +354,7 @@ class CNNKeyPointsBase(NNBase):
         if self.is_recurrent:
             x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
 
+        # todo fix ori_feat and saliency_map below
         if output_mask:
             rnn_hxs = [rnn_hxs, masks]
         if output_feat:
@@ -368,7 +371,7 @@ class CNNKeyPointsBase(NNBase):
         num_keypoints = kpts_mask.shape[1]
         for k in range(num_keypoints):
             # n x 1 x h x w
-            mask = kpts_mask[:, k:k+1]
+            mask = kpts_mask[:, k:k + 1]
             kpt_feat = mask * image_feat  # n x c x h x w
             kpt_feat = F.adaptive_avg_pool2d(kpt_feat, 1)  # global avg pool
             feats.append(kpt_feat.view(kpt_feat.shape[0], kpt_feat.shape[1]))
@@ -434,11 +437,11 @@ class CNNKeyPointsBase(NNBase):
         n, c, h, w = x.shape
         feat = x.view(n, c, h * w)
         feat = feat.transpose(1, 2)  # n x (hxw) x c
-        loc_y = torch.arange(h,device=x.device, dtype=x.dtype).unsqueeze(1).expand(h, w)
-        loc_x = torch.arange(w,device=x.device, dtype=x.dtype).unsqueeze(0).expand(h, w)
-        loc_y = (loc_y / (h-1)) * 2. - 1
-        loc_x = (loc_x / (w-1)) * 2. - 1
-        coords = torch.stack((loc_y, loc_x), dim=2).unsqueeze(0).view(1, h*w, 2).repeat(n, 1, 1) #  n x (h x w) x 2
+        loc_y = torch.arange(h, device=x.device, dtype=x.dtype).unsqueeze(1).expand(h, w)
+        loc_x = torch.arange(w, device=x.device, dtype=x.dtype).unsqueeze(0).expand(h, w)
+        loc_y = (loc_y / (h - 1)) * 2. - 1
+        loc_x = (loc_x / (w - 1)) * 2. - 1
+        coords = torch.stack((loc_y, loc_x), dim=2).unsqueeze(0).view(1, h * w, 2).repeat(n, 1, 1)  # n x (h x w) x 2
         feat_with_loc = torch.cat((feat, coords), dim=2)
         return feat_with_loc
 
@@ -452,7 +455,13 @@ class CNNKeyPointsBase(NNBase):
         x = x.view(-1, x.shape[-1])
         return x
 
-    def _train_selfsup_attention(self, input, target, config):
+    def _train_selfsup_attention(self, input, target, config, device):
+        if isinstance(input, numpy.ndarray):
+            input = torch.from_numpy(input).to(device)
+            input = input.permute(0, 3, 1, 2)
+        if isinstance(target, numpy.ndarray):
+            target = torch.from_numpy(target).to(device)
+            target = target.permute(0, 3, 1, 2)
         input = input / 255.
         target = target / 255.
         autoencoder_loss = config.AUTOENCODER_LOSS
@@ -476,25 +485,25 @@ class CNNKeyPointsBase(NNBase):
 # encoder, keypoint encoder and selfsup_attention model
 # in 'unsupervised learning of object keypoints for perception and control' paper.
 class FeatureEncoder(nn.Module):
-    def __init__(self, num_inputs, use_layer_norm=True,
+    def __init__(self, num_inputs, obs_shape, use_layer_norm=True,
                  use_instance_norm=False):
         super(FeatureEncoder, self).__init__()
         init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
                                constant_(x, 0), nn.init.calculate_gain('relu'))
 
         self.convs_1 = nn.Sequential(
-            init_(nn.Conv2d(num_inputs, 32, 8, stride=4)),
-            nn.LayerNorm([32, 20, 20]) if use_layer_norm else \
+            init_(nn.Conv2d(num_inputs, 32, 3, stride=1, padding=1)),
+            nn.LayerNorm([32, obs_shape[0], obs_shape[1]]) if use_layer_norm else \
                 (nn.InstanceNorm2d(32) if use_instance_norm else nn.Identity()),
             nn.ReLU())
         self.convs_2 = nn.Sequential(
-            init_(nn.Conv2d(32, 64, 4, stride=2)),
-            nn.LayerNorm([64, 9, 9]) if use_layer_norm else \
+            init_(nn.Conv2d(32, 64, 3, stride=1, padding=1)),
+            nn.LayerNorm([64, obs_shape[0], obs_shape[1]]) if use_layer_norm else \
                 (nn.InstanceNorm2d(64) if use_instance_norm else nn.Identity()),
             nn.ReLU())
         self.convs_3 = nn.Sequential(
-            init_(nn.Conv2d(64, 32, 3, stride=1)),
-            nn.LayerNorm([32, 7, 7]) if use_layer_norm else \
+            init_(nn.Conv2d(64, 32, 3, stride=1, padding=1)),
+            nn.LayerNorm([32, obs_shape[0], obs_shape[1]]) if use_layer_norm else \
                 (nn.InstanceNorm2d(32) if use_instance_norm else nn.Identity()),
             nn.ReLU())
 
@@ -542,8 +551,8 @@ class Keypointer(nn.Module):
         accu_x = accu_x.softmax(axis=-1)
         accu_y = accu_y.softmax(axis=-1)
 
-        accu_x = accu_x * torch.arange(x_dim,device=accu_x.device, dtype=accu_x.dtype)
-        accu_y = accu_y * torch.arange(y_dim,device=accu_y.device, dtype=accu_y.dtype)
+        accu_x = accu_x * torch.arange(x_dim, device=accu_x.device, dtype=accu_x.dtype)
+        accu_y = accu_y * torch.arange(y_dim, device=accu_y.device, dtype=accu_y.dtype)
 
         accu_x = accu_x.sum(dim=2)
         accu_y = accu_y.sum(dim=2)
@@ -598,7 +607,7 @@ class Keypointer(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, in_channels, out_channels, use_layer_norm=True,
+    def __init__(self, in_channels, out_channels, obs_shape, use_layer_norm=True,
                  with_sigmoid=True,
                  use_instance_norm=False):
         super(Decoder, self).__init__()
@@ -606,21 +615,21 @@ class Decoder(nn.Module):
         init_ = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
                                constant_(x, 0), nn.init.calculate_gain('relu'))
         init_sigmoid = lambda m: init(m, nn.init.orthogonal_, lambda x: nn.init.
-                               constant_(x, 0), nn.init.calculate_gain('sigmoid'))
+                                      constant_(x, 0), nn.init.calculate_gain('sigmoid'))
 
         self.deconv_1 = nn.Sequential(
-            init_(nn.ConvTranspose2d(32, 64, 3, stride=1)),
-            nn.LayerNorm([64, 7, 7]) if use_layer_norm else \
+            init_(nn.ConvTranspose2d(in_channels, 64, 3, stride=1, padding=1)),
+            nn.LayerNorm([64, obs_shape[0], obs_shape[1]]) if use_layer_norm else \
                 (nn.InstanceNorm2d(64) if use_instance_norm else nn.Identity()),
             nn.ReLU())
         self.deconv_2 = nn.Sequential(
-            init_(nn.ConvTranspose2d(64, 32, 4, stride=2)),
-            nn.LayerNorm([32, 9, 9]) if use_layer_norm else \
+            init_(nn.ConvTranspose2d(64, 32, 3, stride=1, padding=1)),
+            nn.LayerNorm([32, obs_shape[0], obs_shape[1]]) if use_layer_norm else \
                 (nn.InstanceNorm2d(32) if use_instance_norm else nn.Identity()),
             nn.ReLU())
         self.deconv_3 = nn.Sequential(
-            init_(nn.ConvTranspose2d(32, 16, 8, stride=4)),
-            nn.LayerNorm([16, 84, 84]) if use_layer_norm else \
+            init_(nn.ConvTranspose2d(32, 16, 3, stride=1, padding=1)),
+            nn.LayerNorm([16, obs_shape[0], obs_shape[1]]) if use_layer_norm else \
                 (nn.InstanceNorm2d(16) if use_instance_norm else nn.Identity()),
             nn.ReLU())
         if with_sigmoid:
@@ -654,17 +663,19 @@ class GaussianLayer(nn.Module):
         )
 
         self.weights_init()
+
     def forward(self, x):
         return self.seq(x)
 
     def weights_init(self):
-        n= np.zeros((3,3))
-        n[1,1] = 1
-        k = scipy.ndimage.gaussian_filter(n,sigma=0.5)
+        n = np.zeros((3, 3))
+        n[1, 1] = 1
+        k = scipy.ndimage.gaussian_filter(n, sigma=0.5)
         k = k / k[1, 1]
         for name, f in self.named_parameters():
             f.data.copy_(torch.from_numpy(k))
             f.requires_grad = False
+
 
 class SelfSupAttention(nn.Module):
     def __init__(self, feature_encoder, keypointer, decoder):
@@ -679,7 +690,7 @@ class SelfSupAttention(nn.Module):
         num_keypoints = kpts_mask.shape[1]
         for k in range(num_keypoints):
             # n x 1 x h x w
-            mask = kpts_mask[:, k:k+1]
+            mask = kpts_mask[:, k:k + 1]
             kpt_feat = mask * image_feat  # n x c x h x w
             kpt_feat = F.adaptive_avg_pool2d(kpt_feat, 1)  # global avg pool
             feats.append(kpt_feat.view(kpt_feat.shape[0], kpt_feat.shape[1]))
@@ -695,7 +706,7 @@ class SelfSupAttention(nn.Module):
     def calc_feat_dist(self, feat_a, feat_b):
         # n x feat
         n, k, d = feat_a.shape
-        return F.pairwise_distance(feat_a.view(n*k, d), feat_b.view(n*k, d), keepdim=True).view(n, k)
+        return F.pairwise_distance(feat_a.view(n * k, d), feat_b.view(n * k, d), keepdim=True).view(n, k)
 
     def _get_keypoints_loc_from_mask(self, mask):
         if not hasattr(self, 'parser'):
@@ -736,17 +747,17 @@ class SelfSupAttention(nn.Module):
         transported_feat = image_a_feat
         for k in range(num_keypoints):
             # n x h x w
-            mask_a = image_a_keypoints_maps[:, k:k+1]
-            mask_b = image_b_keypoints_maps[:, k:k+1]
+            mask_a = image_a_keypoints_maps[:, k:k + 1]
+            mask_b = image_b_keypoints_maps[:, k:k + 1]
             # suppress features from image a, around both keypoint locations
-            transported_feat = (1-mask_a) * (1-mask_b) * transported_feat
+            transported_feat = (1 - mask_a) * (1 - mask_b) * transported_feat
             # copy features from image b around keypoints for image b
             transported_feat += mask_b * image_b_feat
             foreground_feat = image_b_feat * mask_b
 
         if num_keypoints == 1:
             meta['image_b_foreground'] = image_b_feat * image_b_keypoints_maps[:, 0:1]
-            meta['image_a_background'] = image_a_feat * (1-image_a_keypoints_maps[:,0:1])
+            meta['image_a_background'] = image_a_feat * (1 - image_a_keypoints_maps[:, 0:1])
 
         reconstruct_image_b = self._decoder(transported_feat)
         reconstruct_foreground_b = self._decoder(foreground_feat.detach())
