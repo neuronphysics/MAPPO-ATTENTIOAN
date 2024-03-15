@@ -121,7 +121,11 @@ class SkillDynamics(nn.Module):
         super().__init__()
 
         if base_kwargs is None:
-            base_kwargs = {}
+           base_kwargs={
+                     'hidden_size':args.keypoints_hidden_size,
+                     'selfsup_attention_num_keypoints':args.selfsup_attention_num_keypoints,
+                     'bottom_up_form_objects':args.bottom_up_form_objects
+                    }
         self.z_dim = args.skill_dim
         self.max_num_experts = args.skill_max_num_experts
         self.share_policy = args.share_policy
@@ -309,7 +313,11 @@ class SkillDiscriminator(nn.Module):
         super(SkillDiscriminator, self).__init__()
 
         if base_kwargs is None:
-            base_kwargs = {}
+           base_kwargs={
+                     'hidden_size':args.keypoints_hidden_size,
+                     'selfsup_attention_num_keypoints':args.selfsup_attention_num_keypoints,
+                     'bottom_up_form_objects':args.bottom_up_form_objects
+                    }
         self.obs_dim = reduce(lambda x, y: x * y, obs_shape[0:])
         self.skill_dim = args.skill_dim
         self.device = device
