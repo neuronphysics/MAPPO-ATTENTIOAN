@@ -48,6 +48,17 @@ class BlockGRU(nn.Module):
         self.nhid = nhid
         self.ninp = ninp
         self.to(self.device)
+        self.initialize_weights()
+
+    def initialize_weights(self):
+        # Initialize weights for the GRU cell
+        for name, param in self.gru.named_parameters():
+            if 'weight_ih' in name:
+                nn.init.xavier_uniform_(param.data)
+            elif 'weight_hh' in name:
+                nn.init.orthogonal_(param.data)
+            elif 'bias' in name:
+                nn.init.constant_(param.data, 0)
 
     def blockify_params(self):
         pl = self.gru.parameters()
@@ -93,11 +104,25 @@ class SharedBlockGRU(nn.Module):
 
         self.ninp = ninp
 
-        self.gll_write = GroupLinearLayer(self.m,16, self.n_templates, device=self.device)
-        self.gll_read = GroupLinearLayer(self.m,16,1, device=self.device)
+        self.gll_write = GroupLinearLayer(self.m, 16, self.n_templates, device=self.device)
+        self.gll_read = GroupLinearLayer(self.m, 16, 1, device=self.device)
         self.sa = Sparse_attention(1).to(self.device)
+        self.initialize_weights()
         self.to(self.device)
+
         print("Using Gumble sparsity")
+        
+
+    def initialize_weights(self):
+        # Initialize weights for each GRUCell template
+        for template in self.templates:
+            for name, param in template.named_parameters():
+                if 'weight_ih' in name:
+                    nn.init.xavier_uniform_(param.data)
+                elif 'weight_hh' in name:
+                    nn.init.orthogonal_(param.data)
+                elif 'bias' in name:
+                    nn.init.constant_(param.data, 0)
 
     def blockify_params(self):
 

@@ -91,12 +91,22 @@ class BlocksCore(nn.Module):
             self.set_transformer = False
 
         if self.set_transformer:
-            self.set = nn.Sequential(nn.Linear(self.block_size_out, self.block_size_out), nn.ReLU(),
+            self.set = nn.Sequential(nn.Linear(self.block_size_out, self.block_size_out), 
+                                     nn.ReLU(),
                                      nn.Linear(self.block_size_out, self.block_size_out))
+            # Initialize the linear layers
+            for layer in self.set:
+                if isinstance(layer, nn.Linear):
+                   # The initialization specifically for layers followed by ReLU activation
+                   nn.init.kaiming_uniform_(layer.weight, mode='fan_in', nonlinearity='relu')
+                   if layer.bias is not None:
+                       # Initialize biases to zero
+                      nn.init.constant_(layer.bias, 0)
+
 
         self.mha = MultiHeadAttention(n_head=4, d_model_read=self.block_size_out, d_model_write=self.block_size_out,
                                       d_model_out=self.block_size_out, d_k=32, d_v=32,
-                                      num_blocks_read=self.num_blocks_out, num_blocks_write=self.num_blocks_out,
+                                      num_blocks_read=self.num_blocks_out, num_blocks_write=self.num_blocks_out, 
                                       dropout=0.1, topk=self.num_blocks_out, n_templates=1, share_comm=share_comm,
                                       share_inp=False, grad_sparse=False)
 

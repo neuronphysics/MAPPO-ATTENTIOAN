@@ -81,10 +81,11 @@ class ScaledDotProductAttention(nn.Module):
             attn = sparse_attn * 1.0
 
         output = torch.bmm(attn, v)
+        output = output +  q #skip connection
         return output, attn, extra_loss
 
 
-import torch.nn.functional as F
+
 
 
 class MultiHeadAttention(nn.Module):
@@ -185,8 +186,9 @@ class MultiHeadAttention(nn.Module):
         if self.residual:
             output = gate * F.tanh(output)
         else:
-            # output = self.ln(output)
-            pass
+            output += residual
+            output = self.ln(output)
+            
 
         # output
 
@@ -287,6 +289,7 @@ class PositionwiseFeedForward(nn.Module):
         output = self.w_2(F.relu(self.w_1(output)))
         output = output.transpose(1, 2)
         output = self.dropout(output)
+        #skip connection
         output = self.layer_norm(output + residual)
         return output
 

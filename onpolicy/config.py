@@ -252,7 +252,7 @@ def get_config():
                         help='critic learning rate (default: 5e-4)')
     parser.add_argument("--opti_eps", type=float, default=1e-5,
                         help='RMSprop optimizer epsilon (default: 1e-5)')
-    parser.add_argument("--weight_decay", type=float, default=0)
+    parser.add_argument("--weight_decay", type=float, default=1e-4, help='the weight_decay parameter in the Adam optimizers introduces L2 regularization for networks')
 
     # ppo parameters
     parser.add_argument("--ppo_epoch", type=int, default=15,
