@@ -81,10 +81,8 @@ class ScaledDotProductAttention(nn.Module):
             attn = sparse_attn * 1.0
 
         output = torch.bmm(attn, v)
-        output = output +  q #skip connection
+        
         return output, attn, extra_loss
-
-
 
 
 
