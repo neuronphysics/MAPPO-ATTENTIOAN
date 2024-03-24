@@ -184,7 +184,7 @@ class MultiHeadAttention(nn.Module):
         if self.residual:
             output = gate * F.tanh(output)
         else:
-            output += residual
+            
             output = self.ln(output)
             
 
