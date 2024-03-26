@@ -92,6 +92,7 @@ class ResidualBlock(nn.Module):
         """
         super(ResidualBlock, self).__init__()
         nl = nn.LeakyReLU(0.2) if nonlinearity is None else nonlinearity
+        self.activation = nl
         layers = []
         layers.append(
             nn.Conv2d(
@@ -124,7 +125,7 @@ class ResidualBlock(nn.Module):
         elif norm_type == 'layer':
             layers.append(nn.GroupNorm(num_groups, in_channels))
 
-        layers.append(nl)
+        
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -132,7 +133,7 @@ class ResidualBlock(nn.Module):
         out = out + x
         # each residual block doesn't wrap (res_x + x) with an activation function
         # as the next block implement ReLU as the first layer
-        return out
+        return self.activation(out)
 
 
 class PrintLayer(nn.Module):
@@ -439,7 +440,8 @@ class Encoder(nn.Module):
                     nonlinearity=self.activation
                 ))
                 # encoder_layers.append(PrintLayer())
-
+        encoder_layers.append(nn.AdaptiveAvgPool2d((1, 1)))
+        
         self.encoder = nn.Sequential(*encoder_layers)
         self.out_channels = out_channels
         # Calculate shape of the flattened image
