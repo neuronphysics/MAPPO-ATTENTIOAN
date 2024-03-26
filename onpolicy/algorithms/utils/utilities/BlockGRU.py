@@ -15,8 +15,7 @@ import torch
 import torch.nn as nn
 from .GroupLinearLayer import GroupLinearLayer
 from .sparse_attn import Sparse_attention
-
-
+from .LayerNormGRUCell import LayerNormGRUCell
 '''
 Given an N x N matrix, and a grouping of size, set all elements off the block diagonal to 0.0
 '''
@@ -36,7 +35,7 @@ def zero_matrix_elements(matrix, k):
 class BlockGRU(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, ninp, nhid, k):
+    def __init__(self, ninp, nhid, k, standard=False):
         super(BlockGRU, self).__init__()
 
         assert ninp % k == 0, f"ninp ({ninp}) should be divisible by k ({k})"
@@ -44,7 +43,10 @@ class BlockGRU(nn.Module):
 
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.k = k
-        self.gru = nn.GRUCell(ninp, nhid).to(self.device)
+        if standard:
+           self.gru = nn.GRUCell(ninp, nhid).to(self.device)
+        else:
+           self.gru = LayerNormGRUCell(ninp, nhid)
         self.nhid = nhid
         self.ninp = ninp
         self.to(self.device)
@@ -88,7 +90,7 @@ class Identity(torch.autograd.Function):
 class SharedBlockGRU(nn.Module):
     """Dynamic sharing of parameters between blocks(RIM's)"""
 
-    def __init__(self, ninp, nhid, k, n_templates):
+    def __init__(self, ninp, nhid, k, n_templates, standard=False):
         super(SharedBlockGRU, self).__init__()
 
         assert ninp % k == 0, f"ninp ({ninp}) should be divisible by k ({k})"
@@ -99,7 +101,10 @@ class SharedBlockGRU(nn.Module):
         self.m = nhid // self.k
 
         self.n_templates = n_templates
-        self.templates = nn.ModuleList([nn.GRUCell(ninp,self.m).to(self.device) for _ in range(0,self.n_templates)])
+        if standard:
+           self.templates = nn.ModuleList([nn.GRUCell(ninp,self.m).to(self.device) for _ in range(0, self.n_templates)])
+        else:
+           self.templates = nn.ModuleList([LayerNormGRUCell(ninp,self.m) for _ in range(0, self.n_templates)]) 
         self.nhid = nhid
 
         self.ninp = ninp

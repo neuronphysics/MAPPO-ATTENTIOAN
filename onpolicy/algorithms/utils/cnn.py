@@ -355,12 +355,12 @@ class Encoder(nn.Module):
                  max_filters=512,
                  num_layers=4,
                  small_conv=False,
-                 norm_type='batch',
+                 norm_type='layer',
                  num_groups=1,
                  kernel_size=4,
                  stride_size=2,
                  padding_size=1,
-                 activation=nn.GELU(),
+                 activation=nn.ReLU(),
                  num_bands_positional_encoding=10,
                  project_pos_dim=-1,
                  position_encoding_type: str = "fourier",
@@ -421,6 +421,8 @@ class Encoder(nn.Module):
             if norm_type == 'batch':
                 encoder_layers.append(nn.BatchNorm2d(out_channels))
             elif norm_type == 'layer':
+                encoder_layers.append(nn.LayerNorm(out_channels))
+            else:
                 encoder_layers.append(nn.GroupNorm(num_groups, out_channels))
 
             # ReLU
@@ -595,12 +597,16 @@ class ResidualBlock_deconv(nn.Module):
         if norm_type == "batch":
             self.norm1 = nn.BatchNorm2d(channel)
         elif norm_type == "layer":
+            self.norm1 =nn.LayerNorm(channel)
+        else:
             self.norm1 = nn.GroupNorm(num_groups, channel)
         self.activation = nl
         self.conv2 = nn.ConvTranspose2d(channel, channel, kernel_size, stride, padding)
         if norm_type == "batch":
             self.norm2 = nn.BatchNorm2d(channel)
         elif norm_type == "layer":
+            self.norm2 =nn.LayerNorm(channel)
+        else:
             self.norm2 = nn.GroupNorm(num_groups, channel)
 
     def forward(self, x):
