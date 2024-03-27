@@ -252,7 +252,8 @@ def get_config():
                         help='critic learning rate (default: 5e-4)')
     parser.add_argument("--opti_eps", type=float, default=1e-5,
                         help='RMSprop optimizer epsilon (default: 1e-5)')
-    parser.add_argument("--weight_decay", type=float, default=1e-4, help='the weight_decay parameter in the Adam optimizers introduces L2 regularization for networks')
+    parser.add_argument("--weight_decay", type=float, default=1e-4,
+                        help='the weight_decay parameter in the Adam optimizers introduces L2 regularization for networks')
 
     # ppo parameters
     parser.add_argument("--ppo_epoch", type=int, default=15,
@@ -339,12 +340,17 @@ def get_config():
     parser.add_argument("--num_training_skill_dynamics", type=int, default=1, help="skill dynamics training steps")
     parser.add_argument("--coefficient_skill_return", type=float, default=0.1,
                         help="the scaling coefficient for the intrinsic rewards in the final returns.")
-    parser.add_argument("--skill_dynamics_grad_norm", type=float, default=0.5, help="gradient clipping value for skill dynamics and discriminator")
-    #skill dynamics --> keypoints
+    parser.add_argument("--skill_dynamics_grad_norm", type=float, default=0.5,
+                        help="gradient clipping value for skill dynamics and discriminator")
+    # skill dynamics --> keypoints
     parser.add_argument("--keypoints_hidden_size", type=int, default=512,
-                        help="specify the number of hidden units for the keypoints detection used in the skill dynamics network")
-    parser.add_argument("--sup_attention_num_keypoints", type=int, default=10, help="specify the number of keypoints detected in the enviroment to be used in the skill dynamics network")
-    parser.add_argument("--bottom_up_form_num_of_objects", type=int, default=15 ,help ="specify the number of bottom up objects used for the keypoint detection")
+                        help="specify the number of hidden units for the keypoints detection used in the skill "
+                             "dynamics network")
+    parser.add_argument("--sup_attention_num_keypoints", type=int, default=10,
+                        help="specify the number of keypoints detected in the enviroment to be used in the skill "
+                             "dynamics network")
+    parser.add_argument("--bottom_up_form_num_of_objects", type=int, default=15,
+                        help="specify the number of bottom up objects used for the keypoint detection")
     return parser
 
 

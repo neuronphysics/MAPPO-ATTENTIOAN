@@ -56,7 +56,7 @@ class CNNLayer(nn.Module):
             init_(nn.Linear(
                 hidden_size // 2 * (input_width - kernel_size + stride) * (input_height - kernel_size + stride),
                 hidden_size)
-                  ),
+            ),
             active_func,
             init_(nn.Linear(hidden_size, hidden_size)), active_func)
 
@@ -84,7 +84,8 @@ class CNNBase(nn.Module):
 
 class ResidualBlock(nn.Module):
 
-    def __init__(self, in_channels, kernel_size, stride, padding, norm_type='layer', num_groups=1, nonlinearity=None):
+    def __init__(self, in_channels, kernel_size, stride, padding, image_height, image_width, norm_type='layer',
+                 num_groups=1, nonlinearity=None):
         """
             1. in_channels is the number of input channels to the first conv layer,
             2. out_channels is the number of output channels of the first conv layer
@@ -107,6 +108,8 @@ class ResidualBlock(nn.Module):
         if norm_type == 'batch':
             layers.append(nn.BatchNorm2d(in_channels))
         elif norm_type == 'layer':
+            layers.append(nn.LayerNorm([in_channels, image_height, image_width]))
+        else:
             layers.append(nn.GroupNorm(num_groups, in_channels))
 
         layers.append(nl)
@@ -123,9 +126,10 @@ class ResidualBlock(nn.Module):
         if norm_type == 'batch':
             layers.append(nn.BatchNorm2d(in_channels))
         elif norm_type == 'layer':
+            layers.append(nn.LayerNorm([in_channels, image_height, image_width]))
+        else:
             layers.append(nn.GroupNorm(num_groups, in_channels))
 
-        
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -306,7 +310,6 @@ class TrainablePositionEncoding(nn.Module):
         return self._num_channels
 
     def forward(self, batch_size):
-        print(f"TrainablePositionEncoding forward called with batch_size={batch_size}")
         position_embeddings = self.position_embeddings
 
         if batch_size is not None:
@@ -364,7 +367,7 @@ class Encoder(nn.Module):
                  activation=nn.ReLU(),
                  num_bands_positional_encoding=10,
                  project_pos_dim=-1,
-                 position_encoding_type: str = "fourier",
+                 position_encoding_type: str = "trainable",
                  concat_or_add_pos: str = "concat",
                  ):
         super(Encoder, self).__init__()
@@ -422,7 +425,7 @@ class Encoder(nn.Module):
             if norm_type == 'batch':
                 encoder_layers.append(nn.BatchNorm2d(out_channels))
             elif norm_type == 'layer':
-                encoder_layers.append(nn.LayerNorm(out_channels))
+                encoder_layers.append(nn.LayerNorm([out_channels, img_height, img_width]))
             else:
                 encoder_layers.append(nn.GroupNorm(num_groups, out_channels))
 
@@ -436,30 +439,33 @@ class Encoder(nn.Module):
                     self.res_kernel,
                     self.res_stride,
                     self.res_padding,
+                    image_height=img_height,
+                    image_width=img_width,
                     norm_type=norm_type,
                     nonlinearity=self.activation
                 ))
                 # encoder_layers.append(PrintLayer())
-        encoder_layers.append(nn.AdaptiveAvgPool2d((1, 1)))
-        
+
         self.encoder = nn.Sequential(*encoder_layers)
-        self.out_channels = out_channels
+        self.out_channels = channel_sizes[-1][1]
         # Calculate shape of the flattened image
         self.h_dim, (self.height_image_dim, self.width_image_dim) = self.get_flattened_size(
             (self.img_height, self.img_width))
         print(
-            f"Calculate shape of the flattened image for linear layer: input of the layer {self.h_dim} hidden {hidden_dim} image height {self.img_height}, image width {self.img_width}")
-        print(f"out channel (positional) :{out_channels}")
+            f"Calculate shape of the flattened image for linear layer: input of the layer {self.h_dim} hidden "
+            f"{hidden_dim} image height {self.img_height}, image width {self.img_width}")
+        print(f"out channel (positional) :{self.out_channels}")
 
         # Position embeddings
         position_encoding_kwargs = dict(
-            concat_pos=True, max_resolution=(self.img_height * out_channels // 2, self.img_width * out_channels // 2),
+            concat_pos=True, max_resolution=(self.img_height * self.out_channels // 2, self.img_width
+                                             * self.out_channels // 2),
             num_bands=num_bands_positional_encoding, sine_only=False
         )
-        trainable_position_encoding_kwargs = dict(num_channels=out_channels, index_dims=1)
+        trainable_position_encoding_kwargs = dict(num_channels=self.out_channels, index_dims=1)
         self.position_embeddings, self.positions_projection = build_position_encoding(
             position_encoding_type=position_encoding_type,
-            out_channels=out_channels,
+            out_channels=self.out_channels,
             project_pos_dim=self.project_pos_dim,
             trainable_position_encoding_kwargs=trainable_position_encoding_kwargs,
             fourier_position_encoding_kwargs=position_encoding_kwargs,
@@ -467,12 +473,12 @@ class Encoder(nn.Module):
 
         # Adjust the input size of the first linear layer to account for the positional features
 
-        print(f"CNN new input size for the linear layer {self.h_dim}, size of positional encoding {self.num_channels}")
+        print(f"CNN new input size for the linear layer {self.h_dim}, size of positional encoding {self.out_channels}")
         # linear layers
         layers = []
         # Flatten Encoder Output
         layers.append(nn.Flatten())
-        layers.append(nn.Linear(self.num_channels * self.img_height * self.img_width, hidden_dim, bias=False))
+        layers.append(nn.Linear(self.out_channels * (1 + self.img_height * self.img_width), hidden_dim, bias=False))
         if norm_type == 'batch':
             layers.append(nn.BatchNorm1d(hidden_dim))
         elif norm_type == 'layer':
@@ -544,7 +550,7 @@ class Encoder(nn.Module):
             sh = inputs.shape
             pos_enc = torch.reshape(pos_enc, list(sh)[:-1] + [-1])
         if self.concat_or_add_pos == "concat":
-            inputs_with_pos = torch.cat([inputs, pos_enc], dim=-1)
+            inputs_with_pos = torch.cat([inputs, pos_enc], dim=1)
             # print(f"inputs_with_pos {inputs_with_pos.shape}")
         elif self.concat_or_add_pos == "add":
             inputs_with_pos = inputs + pos_enc
@@ -599,7 +605,7 @@ class ResidualBlock_deconv(nn.Module):
         if norm_type == "batch":
             self.norm1 = nn.BatchNorm2d(channel)
         elif norm_type == "layer":
-            self.norm1 =nn.LayerNorm(channel)
+            self.norm1 = nn.LayerNorm(channel)
         else:
             self.norm1 = nn.GroupNorm(num_groups, channel)
         self.activation = nl
@@ -607,7 +613,7 @@ class ResidualBlock_deconv(nn.Module):
         if norm_type == "batch":
             self.norm2 = nn.BatchNorm2d(channel)
         elif norm_type == "layer":
-            self.norm2 =nn.LayerNorm(channel)
+            self.norm2 = nn.LayerNorm(channel)
         else:
             self.norm2 = nn.GroupNorm(num_groups, channel)
 
