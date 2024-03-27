@@ -26,7 +26,7 @@ class LayerNormalization(nn.Module):
 class LayerNormGRUCell(RNNCellBase):
 
     def __init__(self, input_size, hidden_size, bias=True):
-        super(LayerNormGRUCell, self).__init__()
+        super(LayerNormGRUCell, self).__init__(input_size, hidden_size, bias, num_chunks=3)
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.input_size = input_size
         self.hidden_size = hidden_size
