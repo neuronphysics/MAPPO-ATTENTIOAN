@@ -27,7 +27,7 @@ class RNNModel(nn.Module):
                  tie_weights=False, use_cudnn_version=False, use_adaptive_softmax=False, cutoffs=None,
                  discrete_input=False, n_templates=2, share_inp=True, share_comm=True,
                  memory_mlp=4, num_blocks=6, update_topk=4, memorytopk=4,
-                 use_gru=False, do_rel=True, num_modules_read_input=2, inp_heads=1,
+                 use_gru=False, do_rel=False, num_modules_read_input=2, inp_heads=1,
                  device=None, memory_slots=4, memory_head_size=16,
                  num_memory_heads=4, attention_out=512, version=0, step_att=True,
                  num_rules=0, rule_time_steps=0, perm_inv=True, application_option=3, use_dropout=True,
