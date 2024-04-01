@@ -492,7 +492,7 @@ class Encoder(nn.Module):
             layers.append(nn.LayerNorm(hidden_dim))
         layers.append(self.activation)
         self.linear_layers = nn.Sequential(*layers)
-
+        self.apply(self._init_weights)
         self.to(device=self.device)
 
     def normalize(self, X):
@@ -519,6 +519,26 @@ class Encoder(nn.Module):
         inp_dim = self.out_channels
 
         return inp_dim + pos_dim
+    
+    def _init_weights(self, m):
+        import math
+        if isinstance(m, nn.Linear):
+            nn.init.trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+        elif isinstance(m, nn.Conv2d):
+            fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            fan_out //= m.groups
+            m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+            if m.bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
+            m.weight.data.fill_(1.0)
+            m.bias.data.zero_()
+
 
     def _build_network_inputs(self, inputs: torch.Tensor, network_input_is_1d: bool = True):
         """
