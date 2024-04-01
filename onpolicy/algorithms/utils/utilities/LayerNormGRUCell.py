@@ -34,9 +34,9 @@ class LayerNormGRUCell(RNNCellBase):
         self.weight_ih = Parameter(torch.Tensor(3 * hidden_size, input_size))
         self.weight_hh = Parameter(torch.Tensor(3 * hidden_size, hidden_size))
 
-        self.reset_ln = LayerNormalization(self.hidden_size)
-        self.input_ln = LayerNormalization(self.hidden_size)
-        self.new_gate_ln = LayerNormalization(self.hidden_size)
+        self.reset_ln = nn.LayerNorm(self.hidden_size)
+        self.input_ln = nn.LayerNorm(self.hidden_size)
+        self.new_gate_ln = nn.LayerNorm(self.hidden_size)
 
         if bias:
             self.bias_ih = Parameter(torch.Tensor(3 * hidden_size))
