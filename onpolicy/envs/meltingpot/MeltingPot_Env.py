@@ -175,6 +175,19 @@ class MeltingPotEnv(multi_agent_env.MultiAgentEnv):
     def step(self, action_dict):
         """See base class."""
 
+        def is_iterable(obj):
+            try:
+                iter(obj)
+                return True
+            except TypeError:
+                return False
+
+        action_dict = action_dict if is_iterable(action_dict[0]) else [[item] for item in action_dict]
+        #print(f"here breaks action_dict in step melting pot environment {action_dict}",len(action_dict), len(action_dict[0]) , self._ordered_agent_ids )
+
+        if len(action_dict) == 1:
+            action_dict = action_dict[0] 
+        
         actions = [list(map(int, action_dict[agent_id])) for agent_id, player in enumerate(self._ordered_agent_ids)]
         actions = np.array(actions)
         # print(f"size of action in step {actions.shape}")
@@ -236,7 +249,9 @@ class MeltingPotEnv(multi_agent_env.MultiAgentEnv):
             into a video.
         """
         observation = self._env.observation()
+        #print(f"observation {len(observation)}")
         world_rgb = observation[0]['WORLD.RGB']
+        #print(f"world_rgb shape {world_rgb.shape}")
 
         # RGB mode is used for recording videos
         return world_rgb

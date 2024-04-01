@@ -145,6 +145,8 @@ class Runner(object):
             self.buffer.append(bu)
             self.trainer.append(tr)
 
+        total_parameters=self.count_parameters()
+        print(f"total number of parameters:{total_parameters}")
         if self.model_dir is not None:  # Armin: why did you move this part here?
             self.restore()
 
@@ -285,3 +287,10 @@ class Runner(object):
                     wandb.log({k: np.mean(v)}, step=total_num_steps)
                 else:
                     self.writter.add_scalars(k, {k: np.mean(v)}, total_num_steps)
+    def count_parameters(self):
+        actor_parameters=0
+        critic_parameters=0
+        for agent_id in range(self.num_agents):
+            actor_parameters+=sum(p.numel() for p in self.policy[agent_id].actor.parameters())
+            critic_parameters+=sum(p.numel() for p in self.policy[agent_id].critic.parameters())
+        return actor_parameters+critic_parameters

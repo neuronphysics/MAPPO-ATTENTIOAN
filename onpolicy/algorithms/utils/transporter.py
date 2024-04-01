@@ -17,9 +17,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 import scipy
 from .util import init, calculate_conv_params
+import imageio
+from PIL import Image
+from PIL import ImageDraw
 
 BN_MOMENTUM = 0.1
 logger = logging.getLogger(__name__)
+
+step=0
+num_agents=9
+num_ppo_epoch=15
+agents=0
 
 
 class SaliencyMapMSELoss(nn.Module):
@@ -455,13 +463,59 @@ class CNNKeyPointsBase(NNBase):
         x = x.view(-1, x.shape[-1])
         return x
 
+    def save_image(self, output, number, name, keypoints=None):
+        last_image_output = output[number]
+        reshaped_image_output_1 = last_image_output[np.newaxis, :]
+        final_image_output = np.squeeze(reshaped_image_output_1).astype(np.uint8)
+        
+        if keypoints is not None:
+            current_keypoints=keypoints[number]
+            current_keypoints=current_keypoints[np.newaxis, :]
+            current_keypoints=np.squeeze(current_keypoints).astype(np.uint8)
+            
+            pil_image = Image.fromarray(final_image_output)
+            draw = ImageDraw.Draw(pil_image)
+            for keypoint in current_keypoints:
+                max_weight= np.abs(keypoint).max()
+                max_unit_coords= np.argwhere(np.abs(keypoint)==max_weight)[0]
+                x , y = max_unit_coords[0],max_unit_coords[1]
+                size=0.3
+                print(x, y)
+                draw.rectangle([x-size, y-size, x+size, y+size], fill="red")
+            pil_image=pil_image.resize((256, 256))
+            #pil_image.save(f"/home/zsheikhb/MARL/master/images_skills/{name}.png")
+        
+        else:
+            # Resize the image (e.g., to 256x256)
+            resized_image_output = Image.fromarray(final_image_output).resize((256, 256))
+            # Save the resized image
+            #resized_image_output.save(f"/home/zsheikhb/MARL/master/images_skills/{name}.png")
+
+
     def _train_selfsup_attention(self, input, target, config, device):
+        
+        global step, agents
+        step+=1
+        if step%num_ppo_epoch==0:
+            agents+=1
+        if step==num_agents*num_ppo_epoch:
+            step=0
+            agents=0
+            
+        agent=str(agents)
+        self.save_image(input, 0, "agent_"+agent+"_step_"+str(step%num_ppo_epoch)+"_first_step_input")
+        self.save_image(input, -1,  "agent_"+agent+"_step_"+str(step%num_ppo_epoch)+"_last_step_input")
+        self.save_image(target, 0,  "agent_"+agent+"_step_"+str(step%num_ppo_epoch)+"_first_step_target")
+        self.save_image(target, -1,  "agent_"+agent+"_step_"+str(step%num_ppo_epoch)+"_last_step_target")
+        
         if isinstance(input, numpy.ndarray):
             input = torch.from_numpy(input).to(device)
             input = input.permute(0, 3, 1, 2)
+            
         if isinstance(target, numpy.ndarray):
             target = torch.from_numpy(target).to(device)
             target = target.permute(0, 3, 1, 2)
+        
         input = input / 255.
         target = target / 255.
         autoencoder_loss = config.AUTOENCODER_LOSS
@@ -470,8 +524,21 @@ class CNNKeyPointsBase(NNBase):
                                                               output_heatmaps=True,
                                                               autoencoder_loss=autoencoder_loss)
         output = meta['reconstruct_image_b']
-        thre = float(config.RECONSTRUCT_LOSS_THRESHOLD)
-        loss = self.selfsup_attention_criterion(output, target, threshold=thre)
+        
+        output_keypoints=image_b_keypoints_maps.cpu().detach().numpy()*255
+    
+        #print("keypoints_maps", image_b_keypoints_maps.shape)
+        #print(output_keypoints[-1][0])
+        
+        output_image=output.permute(0, 2, 3, 1).cpu().detach().numpy()*255
+        #print("output image",output_image[-1])
+        self.save_image(output_image, 0,  "agent_"+agent+"_step_"+str(step%num_ppo_epoch)+"_first_step_output_no_keypoints")
+        self.save_image(output_image, -1,  "agent_"+agent+"_step_"+str(step%num_ppo_epoch)+"_last_step_output_no_keypoints")
+        self.save_image(output_image, 0,  "agent_"+agent+"_step_"+str(step%num_ppo_epoch)+"_first_step_output", keypoints=output_keypoints)
+        self.save_image(output_image, -1,  "agent_"+agent+"_step_"+str(step%num_ppo_epoch)+"_last_step_output", keypoints=output_keypoints)
+                
+        thre=float(config.RECONSTRUCT_LOSS_THRESHOLD)
+        loss=self.selfsup_attention_criterion(output, target, threshold=thre)
         if autoencoder_loss:
             autoencoder_output = meta['reconstruct_image_b_auto']
             auto_loss = self.selfsup_attention_criterion(autoencoder_output, target)
@@ -479,9 +546,9 @@ class CNNKeyPointsBase(NNBase):
         if heatmap_sparsity_loss:
             heatmap_loss = image_b_keypoints_maps.mean()
             loss = loss + heatmap_loss * float(config.HEATMAP_SPARSITY_LOSS_WEIGHT)
+            
         return loss, output, image_b_keypoints_maps
-
-
+    
 # encoder, keypoint encoder and selfsup_attention model
 # in 'unsupervised learning of object keypoints for perception and control' paper.
 class FeatureEncoder(nn.Module):

@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 # python standard libraries
+
+#EXAMPLE
+
+
 import os
 from pathlib import Path
 import sys
@@ -20,9 +24,12 @@ def make_train_env(all_args):
     def get_env_fn(rank):
         def init_env():
             if all_args.env_name == "Meltingpot":
-                
                 player_roles = substrate.get_config(all_args.substrate_name).default_player_roles
-                env_config = {"substrate": all_args.substrate_name, "roles": player_roles}
+                if all_args.downsample:
+                     scale_factor = 8
+                else:
+                     scale_factor = 1
+                env_config = {"substrate": all_args.substrate_name, "roles": player_roles , "scaled":scale_factor}
                 env = env_creator(env_config)
                 
             else:
@@ -40,11 +47,13 @@ def make_train_env(all_args):
 
 
 def parse_args(args, parser):
+    
+
     parser.add_argument("--substrate_name", type=str, default='collaborative_cooking', help= "a physical environment which is paired with different scenarios" )
     parser.add_argument("--scenario_name", type=str,
                         default='collaborative_cooking__circuit_0', 
                         help="Which scenario to run on [SC 0: killed chef, SC 1: semi-skilled apprentice chef, SC 2:an unhelpful partner ]")
-    parser.add_argument("--num_agents", type=int, default=3,
+    parser.add_argument("--num_agents", type=int, default=16,
                         help="number of controlled players.")
     parser.add_argument("--observation", type=str, default="RGB", 
                        help='Observation to render')
@@ -68,11 +77,11 @@ def parse_args(args, parser):
                         default=True, 
                         help="by default true. If false, use different reward for each agent.")
 
-    parser.add_argument("--save_videos", action="store_true", default=False, 
+    parser.add_argument("--save_videos", action="store_true", default=True, 
                         help="by default, do not save render video. If set, save video.")
-    parser.add_argument("--video_dir", type=str, default="", 
+    parser.add_argument("--video_dir", type=str, default="/home/zsheikhb/MARL/master/videos/", 
                         help="directory to save videos.")
-                        
+    
     all_args = parser.parse_known_args(args)[0]
 
     return all_args
@@ -82,6 +91,7 @@ def main(args):
     parser = get_config()
     all_args = parse_args(args, parser)
 
+    print(all_args)
     if all_args.algorithm_name == "rmappo":
         print("u are choosing to use rmappo, we set use_recurrent_policy to be True")
         all_args.use_recurrent_policy = True
