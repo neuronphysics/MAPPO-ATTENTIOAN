@@ -91,22 +91,21 @@ class BlocksCore(nn.Module):
             self.set_transformer = False
 
         if self.set_transformer:
-            self.set = nn.Sequential(nn.Linear(self.block_size_out, self.block_size_out), 
+            self.set = nn.Sequential(nn.Linear(self.block_size_out, self.block_size_out),
                                      nn.ReLU(),
                                      nn.Linear(self.block_size_out, self.block_size_out))
             # Initialize the linear layers
             for layer in self.set:
                 if isinstance(layer, nn.Linear):
-                   # The initialization specifically for layers followed by ReLU activation
-                   nn.init.kaiming_uniform_(layer.weight, mode='fan_in', nonlinearity='relu')
-                   if layer.bias is not None:
-                       # Initialize biases to zero
-                      nn.init.constant_(layer.bias, 0)
-
+                    # The initialization specifically for layers followed by ReLU activation
+                    nn.init.kaiming_uniform_(layer.weight, mode='fan_in', nonlinearity='relu')
+                    if layer.bias is not None:
+                        # Initialize biases to zero
+                        nn.init.constant_(layer.bias, 0)
 
         self.mha = MultiHeadAttention(n_head=4, d_model_read=self.block_size_out, d_model_write=self.block_size_out,
                                       d_model_out=self.block_size_out, d_k=32, d_v=32,
-                                      num_blocks_read=self.num_blocks_out, num_blocks_write=self.num_blocks_out, 
+                                      num_blocks_read=self.num_blocks_out, num_blocks_write=self.num_blocks_out,
                                       dropout=0.1, topk=self.num_blocks_out, n_templates=1, share_comm=share_comm,
                                       share_inp=False, grad_sparse=False)
 
@@ -223,9 +222,10 @@ class BlocksCore(nn.Module):
         sz_b = inp.shape[0]
         batch_size = inp.shape[0]
 
-        # inp_use = inp #layer_input[idx_step]
+        inp_use = inp #layer_input[idx_step]
         # Reshape inp to have two dimensions
-        inp_use = inp.unsqueeze(0)
+        # inp_use = inp.unsqueeze(0)
+        residual = inp
 
         def _process_input(_input):
             _input = _input.unsqueeze(1)
@@ -237,11 +237,10 @@ class BlocksCore(nn.Module):
         if self.version:
             # print(f"inside block core {inp_use.shape} {self.num_blocks_out}")
             input_to_attention = [_process_input(_input) for _input in
-                                  torch.chunk(inp_use, chunks=self.num_blocks_out, dim=1)
-                                  ]
+                                  torch.chunk(inp_use, chunks=self.num_blocks_out, dim=1)]
 
-            if hx.shape[0] != 1:
-                hx = hx.unsqueeze(0)
+            # if hx.shape[0] != 1:
+            #     hx = hx.unsqueeze(0)
 
             split_hx = [chunk.unsqueeze(1) for chunk in
                         torch.chunk(hx, chunks=self.num_blocks_out, dim=1)]
@@ -255,17 +254,19 @@ class BlocksCore(nn.Module):
             iatt = torch.cat(iatt_list, dim=1).to(self.device)
 
             inp_use = inp_use.reshape((inp_use.shape[0], self.att_out * self.num_blocks_out))
-
+            inp_use = inp_use + residual
         else:
             # use attention here.
-            inp_use = inp_use.permute(1, 0, 2)  # new line
+            # inp_use = inp_use.permute(1, 0, 2)  # new line
 
             inp_use = inp_use.reshape((inp_use.shape[0], self.num_blocks_in, self.block_size_in))
+
             inp_use = inp_use.repeat(1, self.num_modules_read_input - 1, 1)
             inp_use = torch.cat([torch.zeros_like(inp_use[:, 0:1, :]).to(self.device), inp_use], dim=1).to(self.device)
             batch_size = inp.shape[0]
             inp_use, iatt, _ = self.inp_att(hx.reshape((hx.shape[0], self.num_blocks_out, self.block_size_out)),
                                             inp_use, inp_use)
+
             iatt = iatt.reshape((self.inp_heads, sz_b, iatt.shape[1], iatt.shape[2]))
             iatt = iatt.mean(0)
 

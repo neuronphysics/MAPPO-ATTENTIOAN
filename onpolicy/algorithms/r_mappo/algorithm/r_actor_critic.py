@@ -78,8 +78,9 @@ class R_Actor(nn.Module):
                                num_rules=0, rule_time_steps=1)
             elif self._attention_module == "SCOFF":
                 print("We are using SCOFF...")
-                self.rnn = SCOFF(device, self.hidden_size, self.hidden_size, num_units=args.scoff_num_units,
-                                 k=args.scoff_topk, num_templates=2, rnn_cell='GRU', n_layers=1, bidirectional=False,
+                self.rnn = SCOFF(device, self.hidden_size, self.hidden_size, attention_out=self.hidden_size,
+                                 num_units=args.scoff_num_units, k=args.scoff_topk, num_templates=2, rnn_cell='GRU',
+                                 n_layers=1, bidirectional=False,
                                  batch_first=False, version=self._use_version_scoff, num_rules=0, rule_time_steps=1)
 
         elif not self.use_attention:
