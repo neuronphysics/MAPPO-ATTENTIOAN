@@ -15,6 +15,8 @@ class R_MAPPOPolicy:
     """
 
     def __init__(self, args, obs_space, cent_obs_space, act_space, device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+        
+
         self.device = device
         self.lr = args.lr
         self.critic_lr = args.critic_lr
@@ -28,10 +30,6 @@ class R_MAPPOPolicy:
         self.actor = R_Actor(args, self.obs_space, self.act_space, self.device)
         self.critic = R_Critic(args, self.share_obs_space, self.device)
         
-        #actor_parameters = sum(p.numel() for p in self.actor.parameters() if p.requires_grad)
-        #critic_parameters = sum(p.numel() for p in self.critic.parameters() if p.requires_grad)
-        #print(f'total number of parameters: {actor_parameters+critic_parameters}')
-
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
                                                 lr=self.lr, eps=self.opti_eps,
                                                 weight_decay=self.weight_decay)
@@ -49,35 +47,6 @@ class R_MAPPOPolicy:
         update_linear_schedule(self.actor_optimizer, episode, episodes, self.lr)
         update_linear_schedule(self.critic_optimizer, episode, episodes, self.critic_lr)
 
-    # def get_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_critic, masks, available_actions=None,
-    #                 deterministic=False):
-    #     """
-    #     Compute actions and value function predictions for the given inputs.
-    #     :param cent_obs (np.ndarray): centralized input to the critic.
-    #     :param obs (np.ndarray): local agent inputs to the actor.
-    #     :param rnn_states_actor: (np.ndarray) if actor is RNN, RNN states for actor.
-    #     :param rnn_states_critic: (np.ndarray) if critic is RNN, RNN states for critic.
-    #     :param masks: (np.ndarray) denotes points at which RNN states should be reset.
-    #     :param available_actions: (np.ndarray) denotes which actions are available to agent
-    #                               (if None, all actions available)
-    #     :param deterministic: (bool) whether the action should be mode of distribution or should be sampled.
-
-    #     :return values: (torch.Tensor) value function predictions.
-    #     :return actions: (torch.Tensor) actions to take.
-    #     :return action_log_probs: (torch.Tensor) log probabilities of chosen actions.
-    #     :return rnn_states_actor: (torch.Tensor) updated actor network RNN states.
-    #     :return rnn_states_critic: (torch.Tensor) updated critic network RNN states.
-    #     """
-    #     actions, action_log_probs, rnn_states_actor = self.actor(obs,
-    #                                                              rnn_states_actor,
-    #                                                              masks,
-    #                                                              available_actions,
-    #                                                              deterministic
-    #                                                              )
-
-    #     values, rnn_states_critic = self.critic(cent_obs, rnn_states_critic, masks)
-    #     return values, actions, action_log_probs, rnn_states_actor, rnn_states_critic
-        
     def get_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_critic, masks, available_actions=None, deterministic=False):
         """
         Compute actions and value function predictions for the given inputs.
