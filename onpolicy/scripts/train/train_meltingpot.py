@@ -169,6 +169,7 @@ def main(args):
                          job_type="training",
                          reinit=True)
     else:
+        '''
         if not run_dir.exists():
             curr_run = 'run1'
         else:
@@ -178,10 +179,12 @@ def main(args):
                 curr_run = 'run1'
             else:
                 curr_run = 'run%i' % (max(exst_run_nums) + 1)
-        run_dir = run_dir / curr_run
-        if not run_dir.exists():
-            os.makedirs(str(run_dir))
 
+        '''
+    curr_run= 'run'+str(all_args.run_num)
+    run_dir = run_dir / curr_run
+    if not run_dir.exists():
+        os.makedirs(str(run_dir))
     setproctitle.setproctitle(str(all_args.algorithm_name) + "-" + \
                               str(all_args.env_name) + "-" + str(all_args.experiment_name) + "@" + str(
         all_args.user_name))

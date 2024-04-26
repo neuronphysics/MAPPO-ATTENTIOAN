@@ -64,7 +64,16 @@ class Runner(object):
                 os.makedirs(self.gif_dir)
         else:
             if self.use_wandb:
-                self.save_dir = str(wandb.run.dir)
+                self.save_dir_wandb = str(wandb.run.dir)
+            
+                self.run_dir = config["run_dir"]
+                self.log_dir = str(self.run_dir / 'logs')
+                if not os.path.exists(self.log_dir):
+                    os.makedirs(self.log_dir)
+                self.writter = SummaryWriter(self.log_dir)
+                self.save_dir = str(self.run_dir / 'models')
+                if not os.path.exists(self.save_dir):
+                    os.makedirs(self.save_dir)
             else:
                 self.run_dir = config["run_dir"]
                 self.log_dir = str(self.run_dir / 'logs')
@@ -113,8 +122,6 @@ class Runner(object):
 
             self.policy.append(po)
 
-        if self.model_dir is not None and self.all_args.load_model:
-            self.restore()
 
         self.trainer = []
         self.buffer = []
@@ -140,6 +147,9 @@ class Runner(object):
 
             self.buffer.append(bu)
             self.trainer.append(tr)
+        
+        if self.model_dir is not None and self.all_args.load_model:
+            self.restore()
 
     def run(self):
         raise NotImplementedError
@@ -235,6 +245,14 @@ class Runner(object):
     def save(self):
         for agent_id in range(self.num_agents):
             policy_actor = self.trainer[agent_id].policy.actor
+            if self.use_wandb:
+                torch.save(policy_actor.state_dict(), str(self.save_dir_wandb) + "/actor_agent" + str(agent_id) + ".pt")
+                policy_critic = self.trainer[agent_id].policy.critic
+                torch.save(policy_critic.state_dict(), str(self.save_dir_wandb) + "/critic_agent" + str(agent_id) + ".pt")
+                if self.trainer[agent_id]._use_valuenorm:
+                    policy_vnrom = self.trainer[agent_id].value_normalizer
+                    torch.save(policy_vnrom.state_dict(), str(self.save_dir_wandb) + "/vnrom_agent" + str(agent_id) + ".pt")
+
             torch.save(policy_actor.state_dict(), str(self.save_dir) + "/actor_agent" + str(agent_id) + ".pt")
             policy_critic = self.trainer[agent_id].policy.critic
             torch.save(policy_critic.state_dict(), str(self.save_dir) + "/critic_agent" + str(agent_id) + ".pt")
@@ -258,6 +276,8 @@ class Runner(object):
                 agent_k = "agent%i/" % agent_id + k
                 if self.use_wandb:
                     wandb.log({agent_k: v}, step=total_num_steps)
+                    self.writter.add_scalars(agent_k, {agent_k: v}, total_num_steps)
+
                 else:
                     self.writter.add_scalars(agent_k, {agent_k: v}, total_num_steps)
 
@@ -266,6 +286,8 @@ class Runner(object):
             if len(v) > 0:
                 if self.use_wandb:
                     wandb.log({k: np.mean(v)}, step=total_num_steps)
+                    self.writter.add_scalars(k, {k: np.mean(v)}, total_num_steps)
+
                 else:
                     self.writter.add_scalars(k, {k: np.mean(v)}, total_num_steps)
 
