@@ -337,4 +337,7 @@ def get_config():
                         help='Whether or not we load the pretrained model')
 
     parser.add_argument("--optimizer", type=str, default='ADAM',help='specify the optimizer to use')
+
+    parser.add_argument("--run_num", type=int, default=100, help='specify the run number')
+
     return parser
