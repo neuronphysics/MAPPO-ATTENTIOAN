@@ -5,6 +5,9 @@ conda shell.bash activate marl
 wandb login a2a1bab96ebbc3869c65e3632485e02fcae9cc42
 conda activate marl
 
+
+general_dir="/home/zsheikhb/MARL"
+
 environment=$1
 seed=$2
 module=$3
@@ -13,6 +16,7 @@ units=$5
 topk=$6
 skill=$7
 optimizer=$8
+run=$9
 
 # Default values in case the environment does not match
 agents=0
@@ -253,6 +257,9 @@ echo "Hidden: $hidden"
 echo "Units: $units"
 echo "using: $skills"
 echo "Optimizer: $optimizer"
+echo "Run number: $run"
+
+
 
 if [ "$skill" = "SKILLS" ]; then
     export PYTHONPATH="$PYTHONPATH:/home/zsheikhb/MARL/master_skills"
@@ -276,16 +283,28 @@ else
     export PYTHONPATH="$PYTHONPATH:/home/zsheikhb/MARL/master"
 
     echo "Not using skill"
+
+    if ls $general_dir/master/onpolicy/scripts/results/Meltingpot/collaborative_cooking__circuit_0/$substrate/mappo/check/run$run/models/*.pt 1> /dev/null 2>&1; then
+        echo "Pre-trained Model exists"
+        load_model=True
+        path_dir=$general_dir/master/onpolicy/scripts/results/Meltingpot/collaborative_cooking__circuit_0/$substrate/mappo/check/run$run/models
+    else
+        echo "Pre-trained Model does not exist"
+        load_model="False"
+        path_dir=None
+    fi
+
+
     # Execute the program based on the module
     if [ "$module" = "RIM" ]; then
         echo "Executing program for RIM"
-        CUDA_VISIBLE_DEVICES=0,1 python /home/zsheikhb/MARL/master/onpolicy/scripts/train/train_meltingpot.py --optimizer ${optimizer} --rim_num_units ${units} --rim_topk ${topk} --use_valuenorm False --use_popart True --env_name "Meltingpot" --experiment_name "check" --substrate_name "${substrate}" --num_agents ${agents} --seed ${seed} --n_rollout_threads 1 --use_wandb True --share_policy False --use_centralized_V False --use_attention True --use_naive_recurrent_policy False --use_recurrent_policy False --hidden_size ${hidden} --use_gae True --episode_length ${episode_length} --attention_module ${module} --algorithm_name mappo --lr 0.00002 --max_grad_norm 0.2 --entropy_coef 0.004 
+        CUDA_VISIBLE_DEVICES=0,1 python $general_dir/master/onpolicy/scripts/train/train_meltingpot.py --load_model ${load_model} --model_dir ${path_dir}  --run_num ${run} --optimizer ${optimizer} --rim_num_units ${units} --rim_topk ${topk} --use_valuenorm False --use_popart True --env_name "Meltingpot" --experiment_name "check" --substrate_name "${substrate}" --num_agents ${agents} --seed ${seed} --n_rollout_threads 1 --use_wandb True --share_policy False --use_centralized_V False --use_attention True --use_naive_recurrent_policy False --use_recurrent_policy False --hidden_size ${hidden} --use_gae True --episode_length ${episode_length} --attention_module ${module} --algorithm_name mappo --lr 0.00002 --max_grad_norm 0.2 --entropy_coef 0.004 
     elif [ "$module" = "SCOFF" ]; then
         echo "Executing program for SCOFF"
-        CUDA_VISIBLE_DEVICES=0,1 python /home/zsheikhb/MARL/master/onpolicy/scripts/train/train_meltingpot.py --optimizer ${optimizer} --scoff_num_units ${units} --scoff_topk ${topk} --use_valuenorm False --use_popart True --env_name "Meltingpot" --experiment_name "check" --substrate_name "${substrate}" --num_agents ${agents} --seed ${seed} --n_rollout_threads 1 --use_wandb True --share_policy False --use_centralized_V False --use_attention True --use_naive_recurrent_policy False --use_recurrent_policy False --hidden_size ${hidden} --use_gae True --episode_length ${episode_length} --attention_module ${module} --algorithm_name mappo --lr 0.00002 --max_grad_norm 0.2 --entropy_coef 0.004 
+        CUDA_VISIBLE_DEVICES=0,1 python $general_dir/master/onpolicy/scripts/train/train_meltingpot.py --load_model ${load_model} --model_dir ${path_dir} --run_num ${run} --optimizer ${optimizer} --scoff_num_units ${units} --scoff_topk ${topk} --use_valuenorm False --use_popart True --env_name "Meltingpot" --experiment_name "check" --substrate_name "${substrate}" --num_agents ${agents} --seed ${seed} --n_rollout_threads 1 --use_wandb True --share_policy False --use_centralized_V False --use_attention True --use_naive_recurrent_policy False --use_recurrent_policy False --hidden_size ${hidden} --use_gae True --episode_length ${episode_length} --attention_module ${module} --algorithm_name mappo --lr 0.00002 --max_grad_norm 0.2 --entropy_coef 0.004 
     elif [ "$module" = "LSTM" ]; then
         echo "Executing program for LSTM"
-        CUDA_VISIBLE_DEVICES=0,1 python /home/zsheikhb/MARL/master/onpolicy/scripts/train/train_meltingpot.py --optimizer ${optimizer} --use_valuenorm False --use_popart True --env_name "Meltingpot" --experiment_name "check" --substrate_name "${substrate}" --num_agents ${agents} --seed ${seed} --n_rollout_threads 1 --use_wandb True --share_policy False --use_centralized_V False --use_attention False --use_naive_recurrent_policy True --use_recurrent_policy True --hidden_size ${hidden} --use_gae True --episode_length ${episode_length} --attention_module ${module} --algorithm_name mappo --lr 0.00002 --max_grad_norm 0.2 --entropy_coef 0.004 
+        CUDA_VISIBLE_DEVICES=0,1 python $general_dir/master/onpolicy/scripts/train/train_meltingpot.py --load_model ${load_model} --model_dir ${path_dir} --run_num ${run} --optimizer ${optimizer} --use_valuenorm False --use_popart True --env_name "Meltingpot" --experiment_name "check" --substrate_name "${substrate}" --num_agents ${agents} --seed ${seed} --n_rollout_threads 1 --use_wandb True --share_policy False --use_centralized_V False --use_attention False --use_naive_recurrent_policy True --use_recurrent_policy True --hidden_size ${hidden} --use_gae True --episode_length ${episode_length} --attention_module ${module} --algorithm_name mappo --lr 0.00002 --max_grad_norm 0.2 --entropy_coef 0.004 
     else
         echo "Module is neither RIM nor SCOFF, nor LSTM"
     fi
