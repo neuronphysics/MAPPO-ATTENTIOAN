@@ -1,6 +1,7 @@
 import torch
 from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_Critic
 from onpolicy.utils.util import update_linear_schedule
+import torch_optimizer as optim2
 
 
 class R_MAPPOPolicy:
@@ -25,6 +26,7 @@ class R_MAPPOPolicy:
         self.obs_space = obs_space
         self.share_obs_space = cent_obs_space
         self.act_space = act_space
+        self.optimizer=args.optimizer
 
         self.actor = R_Actor(args, self.obs_space, self.act_space, self.device)
         self.critic = R_Critic(args, self.share_obs_space, self.device)
@@ -32,13 +34,63 @@ class R_MAPPOPolicy:
         # actor_parameters = sum(p.numel() for p in self.actor.parameters() if p.requires_grad)
         # critic_parameters = sum(p.numel() for p in self.critic.parameters() if p.requires_grad)
 
-        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
-                                                lr=self.lr, eps=self.opti_eps,
-                                                weight_decay=self.weight_decay)
-        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),
-                                                 lr=self.critic_lr,
-                                                 eps=self.opti_eps,
-                                                 weight_decay=self.weight_decay)
+        if self.optimizer == 'ADAM':
+            self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
+                                                    lr=self.lr, eps=self.opti_eps,
+                                                    weight_decay=self.weight_decay,amsgrad=False)
+            self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),
+                                                     lr=self.critic_lr,
+                                                     eps=self.opti_eps,
+                                                     weight_decay=self.weight_decay,amsgrad=False)
+        elif self.optimizer == 'AMS':
+            self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
+                                                    lr=self.lr, eps=self.opti_eps,
+                                                    weight_decay=self.weight_decay, amsgrad=True)
+            self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),
+                                                     lr=self.critic_lr,
+                                                     eps=self.opti_eps,
+                                                     weight_decay=self.weight_decay, amsgrad=True)
+        elif self.optimizer == 'ADAMW':
+            self.actor_optimizer = torch.optim.AdamW(self.actor.parameters(),
+                                                    lr=self.lr, eps=self.opti_eps,
+                                                    weight_decay=self.weight_decay,amsgrad=False)
+            self.critic_optimizer = torch.optim.AdamW(self.critic.parameters(),
+                                                     lr=self.critic_lr,
+                                                     eps=self.opti_eps,
+                                                     weight_decay=self.weight_decay,amsgrad=False)
+        elif self.optimizer == 'AMSW':
+            self.actor_optimizer = torch.optim.AdamW(self.actor.parameters(),
+                                                    lr=self.lr, eps=self.opti_eps,
+                                                    weight_decay=self.weight_decay, amsgrad=True)
+            self.critic_optimizer = torch.optim.AdamW(self.critic.parameters(),
+                                                     lr=self.critic_lr,
+                                                     eps=self.opti_eps,
+                                                     weight_decay=self.weight_decay, amsgrad=True)
+        elif self.optimizer == 'RMS':
+            self.actor_optimizer = torch.optim.RMSprop(self.actor.parameters(),
+                                                      lr=self.lr, eps=self.opti_eps,
+                                                      weight_decay=self.weight_decay)
+            self.critic_optimizer = torch.optim.RMSprop(self.critic.parameters(),
+                                                       lr=self.critic_lr,
+                                                       eps=self.opti_eps,
+                                                       weight_decay=self.weight_decay)  
+        elif self.optimizer == 'POO':
+            self.actor_optimizer = optim2.Shampoo(self.actor.parameters(),
+                                                      lr=self.lr, epsilon=self.opti_eps,
+                                                      weight_decay=self.weight_decay)
+            self.critic_optimizer = optim2.Shampoo(self.critic.parameters(),
+                                                       lr=self.critic_lr,
+                                                       epsilon=self.opti_eps,
+                                                       weight_decay=self.weight_decay)
+        elif self.optimizer == 'SWT':
+            self.actor_optimizer = optim2.SWATS(self.actor.parameters(),
+                                                      lr=self.lr, eps=self.opti_eps,
+                                                      weight_decay=self.weight_decay)   
+            self.critic_optimizer = optim2.SWATS(self.critic.parameters(),
+                                                       lr=self.critic_lr,
+                                                       eps=self.opti_eps,
+                                                       weight_decay=self.weight_decay)
+            
 
     def lr_decay(self, episode, episodes):
         """

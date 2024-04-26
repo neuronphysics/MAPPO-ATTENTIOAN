@@ -144,7 +144,10 @@ class R_Actor(nn.Module):
         actor_features = self.base(obs)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy or self.use_attention:
-            output = self.rnn(actor_features, rnn_states)
+            if not self.use_attention:
+                output = self.rnn(actor_features, rnn_states, masks)
+            else:
+                output = self.rnn(actor_features, rnn_states)
             actor_features, rnn_states = output[:2]
             if self.rnn_attention_module == "LSTM":
                 c = output[-1]
