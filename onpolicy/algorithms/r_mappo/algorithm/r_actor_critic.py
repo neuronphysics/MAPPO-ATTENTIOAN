@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 from onpolicy.algorithms.utils.util import init, check, calculate_conv_params
 from onpolicy.algorithms.utils.cnn import CNNBase, Encoder
-from onpolicy.algorithms.utils.modularity import RIM, SCOFF
+from onpolicy.algorithms.utils.modularity import SCOFF
+from onpolicy.algorithms.utils.rim_cell import RIM
 from onpolicy.algorithms.utils.mlp import MLPBase
 from onpolicy.algorithms.utils.rnn import RNNLayer
 from onpolicy.algorithms.utils.act import ACTLayer
@@ -26,6 +27,10 @@ class R_Actor(nn.Module):
                  device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
         super(R_Actor, self).__init__()
         self.hidden_size = args.hidden_size
+        self.drop_out = args.drop_out
+        self.rnn_attention_module = args.rnn_attention_module
+        self.use_bidirectional = args.use_bidirectional
+        self.n_rollout = args.n_rollout_threads
 
         self._gain = args.gain
         self._use_orthogonal = args.use_orthogonal
@@ -37,62 +42,33 @@ class R_Actor(nn.Module):
         self._use_version_scoff = args.use_version_scoff
         self.num_bands_positional_encoding = args.num_bands_positional_encoding
         self.tpdv = dict(dtype=torch.float32, device=device)
+        self._attention_module = args.attention_module
 
         obs_shape = get_shape_from_obs_space(obs_space)
 
         ##Zahra added
         self.use_attention = args.use_attention
-        self._attention_module = args.attention_module
         self._obs_shape = obs_shape
 
+        base = CNNBase if len(obs_shape) == 3 else MLPBase
+        self.base = base(args, obs_shape)
+
         if self.use_attention and len(self._obs_shape) >= 3:
-            logging.info('Using attention module %s: input width: %d', self._attention_module, obs_shape[1])
-            # print(f"we are using both CNN and attention module.... {obs_shape} {len(self._obs_shape)}")
-            if obs_shape[0] == 3:
-                input_channel = obs_shape[0]
-                input_width = obs_shape[1]
-                input_height = obs_shape[2]
-            elif obs_shape[2] == 3:
-                input_channel = obs_shape[2]
-                input_width = obs_shape[0]
-                input_height = obs_shape[1]
-                # making parametrs of encoder for CNN compatible with different image sizes
-            kernel, stride, padding = calculate_conv_params((input_width, input_height, input_channel))
-
-            self.base = Encoder(input_channel,
-                                input_height,
-                                input_width,
-                                self.hidden_size,
-                                device,
-                                max_filters=256,
-                                num_layers=3,
-                                kernel_size=kernel,
-                                stride_size=stride,
-                                padding_size=padding,
-                                num_bands_positional_encoding=self.num_bands_positional_encoding)
-
-            if self._attention_module == "RIM":
-                print("We are using RIM...")
-                self.rnn = RIM(device, self.hidden_size, self.hidden_size, num_units=args.rim_num_units,
-                               k=args.rim_topk, rnn_cell='GRU', n_layers=1, bidirectional=False, batch_first=True,
-                               num_rules=0, rule_time_steps=1)
-            elif self._attention_module == "SCOFF":
-                print("We are using SCOFF...")
+            if self._attention_module  == "RIM":
+                self.rnn = RIM(device, self.hidden_size, self.hidden_size // args.rim_num_units, args.rim_num_units,
+                               args.rim_topk, rnn_cell=self.rnn_attention_module, n_layers=1,
+                               bidirectional=self.use_bidirectional,
+                               comm_dropout=self.drop_out, input_dropout=self.drop_out)
+            elif self._attention_module  == "SCOFF":
                 self.rnn = SCOFF(device, self.hidden_size, self.hidden_size, attention_out=self.hidden_size,
                                  num_units=args.scoff_num_units, k=args.scoff_topk, num_templates=2, rnn_cell='GRU',
                                  n_layers=1, bidirectional=False,
                                  batch_first=False, version=self._use_version_scoff, num_rules=0, rule_time_steps=1)
 
         elif not self.use_attention:
-            base = CNNBase if len(obs_shape) >= 3 else MLPBase
-            logging.info("observation space %s number of dimensions of observation space is %d", str(obs_space.shape),
-                         len(obs_shape))
             if len(obs_shape) == 3:
                 logging.info('Not using any attention module, input width: %d ', obs_shape[1])
-            self.base = base(args, obs_shape)
-
             if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-                print("We are using LSTM...")
                 self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
 
         self.dynamics = SkillDynamics(args, self._obs_shape)
@@ -123,17 +99,14 @@ class R_Actor(nn.Module):
         if available_actions is not None:
             available_actions = check(available_actions).to(**self.tpdv)
 
-        if self.use_attention and len(self._obs_shape) >= 3:
-            actor_features = self.base(obs)
-            actor_features, rnn_states = self.rnn(actor_features, rnn_states)
-            if self._attention_module == "RIM":
-                rnn_states = tuple(t.permute(1, 0, 2) for t in rnn_states)
-        else:
+        actor_features = self.base(obs)
+        output = self.rnn(actor_features, rnn_states, masks=masks)
+        actor_features, rnn_states = output[:2]
+        if self.rnn_attention_module == "LSTM":
+            c = output[-1]
 
-            actor_features = self.base(obs)
-            if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-                actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
-                rnn_states = rnn_states.permute(1, 0, 2)
+        if not self.use_attention and (self._use_naive_recurrent_policy or self._use_recurrent_policy):
+            rnn_states = rnn_states.permute(1, 0, 2)
 
         skills = self.skill_discriminator.get_distribution(obs, rnn_states, masks).sample()
 
@@ -173,7 +146,10 @@ class R_Actor(nn.Module):
         skills = self.skill_discriminator.get_distribution(obs, rnn_states, masks).sample()
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy or self.use_attention:
-            actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
+            output = self.rnn(actor_features, rnn_states, masks=masks)
+            actor_features, rnn_states = output[:2]
+            if self.rnn_attention_module == "LSTM":
+                c = output[-1]
 
         if len(actor_features.shape) == 3:
             actor_features = torch.squeeze(actor_features, dim=0)
@@ -220,48 +196,32 @@ class R_Critic(nn.Module):
         init_method = [nn.init.xavier_uniform_, nn.init.orthogonal_][self._use_orthogonal]
         cent_obs_shape = get_shape_from_obs_space(cent_obs_space)
 
+        self.drop_out = args.drop_out
+        self.rnn_attention_module = args.rnn_attention_module
+        self.use_bidirectional = args.use_bidirectional
+        self.n_rollout = args.n_rollout_threads
+
         ## Zahra added
         self._use_version_scoff = args.use_version_scoff
         self.use_attention = args.use_attention
         self._attention_module = args.attention_module
 
         self._obs_shape = cent_obs_shape
+
+        base = CNNBase if len(self._obs_shape) == 3 else MLPBase
+        self.base = base(args, self._obs_shape)
+
         if self.use_attention and len(self._obs_shape) >= 3:
-            if self._obs_shape[0] == 3:
-                input_channel = cent_obs_shape[0]
-                input_width = cent_obs_shape[1]
-                input_height = cent_obs_shape[2]
-            elif self._obs_shape[2] == 3:
-                input_channel = cent_obs_shape[2]
-                input_width = cent_obs_shape[0]
-                input_height = cent_obs_shape[1]
-            # making parametrs of encoder for CNN compatible with different image sizes
-            kernel, stride, padding = calculate_conv_params((input_width, input_height, input_channel))
-
-            self.base = Encoder(input_channel,
-                                input_height,
-                                input_width,
-                                self.hidden_size,
-                                device,
-                                max_filters=256,
-                                num_layers=3,
-                                kernel_size=kernel,
-                                stride_size=stride,
-                                padding_size=padding,
-                                num_bands_positional_encoding=self.num_bands_positional_encoding)
-            if self._attention_module == "RIM":
-
-                self.rnn = RIM(device, self.hidden_size, self.hidden_size, num_units=args.rim_num_units,
-                               k=args.rim_topk, rnn_cell='GRU', n_layers=1, bidirectional=False, batch_first=True)
-
-            elif self._attention_module == "SCOFF":
+            if self._attention_module  == "RIM":
+                self.rnn = RIM(device, self.hidden_size, self.hidden_size // args.rim_num_units, args.rim_num_units,
+                               args.rim_topk,
+                               rnn_cell=self.rnn_attention_module, n_layers=1, bidirectional=self.use_bidirectional,
+                               comm_dropout=self.drop_out, input_dropout=self.drop_out)
+            elif self._attention_module  == "SCOFF":
                 self.rnn = SCOFF(device, self.hidden_size, self.hidden_size, num_units=args.scoff_num_units,
                                  k=args.scoff_topk, num_templates=2, rnn_cell='GRU', n_layers=1, bidirectional=False,
                                  batch_first=False, version=self._use_version_scoff)
         elif not self.use_attention:
-            base = CNNBase if len(cent_obs_shape) >= 3 else MLPBase
-            self.base = base(args, cent_obs_shape)
-
             if self._use_naive_recurrent_policy or self._use_recurrent_policy:
                 self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
 
@@ -288,19 +248,17 @@ class R_Critic(nn.Module):
         cent_obs = check(cent_obs).to(**self.tpdv)
         rnn_states = check(rnn_states).to(**self.tpdv)
         masks = check(masks).to(**self.tpdv)
-        if self.use_attention and len(self._obs_shape) == 3:
-            critic_features = self.base(cent_obs)
-            critic_features, rnn_states = self.rnn(critic_features, rnn_states)
-            if self._attention_module == "RIM":
-                rnn_states = tuple(t.permute(1, 0, 2) for t in rnn_states)
-        else:
 
-            critic_features = self.base(cent_obs)
+        critic_features = self.base(cent_obs)
+        output = self.rnn(critic_features, rnn_states, masks=masks)
+        critic_features, rnn_states = output[:2]
+        if self.rnn_attention_module == "LSTM":
+            c = output[-1]
 
-            if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-                critic_features, rnn_states = self.rnn(critic_features, rnn_states, masks)
-                critic_features = critic_features.unsqueeze(0)
-                rnn_states = rnn_states.permute(1, 0, 2)
+        if not self.use_attention and (self._use_naive_recurrent_policy or self._use_recurrent_policy):
+            rnn_states = rnn_states.permute(1, 0, 2)
+
+        critic_features = critic_features.unsqueeze(0)
         values = self.v_out(critic_features)
 
         return values, rnn_states

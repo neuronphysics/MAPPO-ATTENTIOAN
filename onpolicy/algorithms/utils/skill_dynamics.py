@@ -121,11 +121,11 @@ class SkillDynamics(nn.Module):
         super().__init__()
 
         if base_kwargs is None:
-           base_kwargs={
-                     'hidden_size':args.keypoints_hidden_size,
-                     'sup_attention_num_keypoints':args.sup_attention_num_keypoints,
-                     'bottom_up_form_num_of_objects':args.bottom_up_form_num_of_objects
-                    }
+            base_kwargs = {
+                'hidden_size': args.keypoints_hidden_size,
+                'sup_attention_num_keypoints': args.sup_attention_num_keypoints,
+                'bottom_up_form_num_of_objects': args.bottom_up_form_num_of_objects
+            }
         self.z_dim = args.skill_dim
         self.max_num_experts = args.skill_max_num_experts
         self.share_policy = args.share_policy
@@ -145,8 +145,6 @@ class SkillDynamics(nn.Module):
         self.hiddens = CNNBase(obs_shape, **base_kwargs)
 
         input_dim = self.z_dim
-        print(f"size of observational skill dynamics input {self.obs_dim}")
-        print(f'dynamics input dim: {input_dim}')
         self.bn_in = nn.BatchNorm2d(obs_shape[0])
         self.bn_target = nn.BatchNorm2d(obs_shape[0], affine=False)
         self.flatten = Flatten()
@@ -162,8 +160,6 @@ class SkillDynamics(nn.Module):
             self.stddev = SlimFC(self.hiddens.output_size + input_dim, self.max_num_experts * self.obs_dim,
                                  initializer=lambda w: nn.init.xavier_uniform_(w, 1.0),
                                  apply_spectral_norm=self._dynamics_spectral_norm)
-        # print(self.hiddens._modules)
-        # print(self.hiddens._modules['0']._model._modules['0'])
 
         self.to(self.device)
 
@@ -272,7 +268,6 @@ class SkillDynamics(nn.Module):
             diff = (alt_log_prob - log_prob)
 
         reward = - torch.log(1 + torch.exp(torch.clamp(diff, -50, 50)).sum(dim=-1))
-        # print(reward.shape)
         return reward, {'log_prob': log_prob, 'alt_log_prob': alt_log_prob,
                         'num_higher_prob': ((-diff) >= 0).sum().item()}
 
@@ -313,11 +308,11 @@ class SkillDiscriminator(nn.Module):
         super(SkillDiscriminator, self).__init__()
 
         if base_kwargs is None:
-           base_kwargs={
-                     'hidden_size':args.keypoints_hidden_size,
-                     'sup_attention_num_keypoints':args.sup_attention_num_keypoints,
-                     'bottom_up_form_num_of_objects':args.bottom_up_form_num_of_objects
-                    }
+            base_kwargs = {
+                'hidden_size': args.keypoints_hidden_size,
+                'sup_attention_num_keypoints': args.sup_attention_num_keypoints,
+                'bottom_up_form_num_of_objects': args.bottom_up_form_num_of_objects
+            }
         self.obs_dim = reduce(lambda x, y: x * y, obs_shape[0:])
         self.skill_dim = args.skill_dim
         self.device = device

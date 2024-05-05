@@ -40,7 +40,6 @@ class CNNLayer(nn.Module):
             input_width = obs_shape[1]
             input_height = obs_shape[2]
         elif obs_shape[2] == 3:
-            print(f"obs_shape inside CNN {obs_shape}")
             input_channel = obs_shape[2]
             input_width = obs_shape[0]
             input_height = obs_shape[1]

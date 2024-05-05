@@ -351,6 +351,13 @@ def get_config():
                              "dynamics network")
     parser.add_argument("--bottom_up_form_num_of_objects", type=int, default=15,
                         help="specify the number of bottom up objects used for the keypoint detection")
+
+    parser.add_argument("--drop_out", type=float,
+                        default=0.5, help="specify the drop out")
+    parser.add_argument("--rnn_attention_module", type=str,
+                        default='GRU', help='specify the rnn module to use')
+    parser.add_argument("--use_bidirectional", type=get_bool, default=False,
+                        help='Whether or not to be bidirectional')
     return parser
 
 
